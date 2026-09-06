@@ -1,0 +1,4 @@
+customer_id,customer_name,email,region
+C001,김하늘,haneul@example.com,서울
+C002,이바다,,
+C001,김하늘,haneul@example.com,서울

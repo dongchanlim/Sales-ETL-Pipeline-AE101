@@ -1,0 +1,14 @@
+order_id,customer_id,order_date,order_status,order_amount
+O001,C001,2026-09-01,completed,30000
+O002,C002,2026-09-02,completed,15000
+O003,C001,2026-09-02,completed,10000
+O004,C001,2026-09-02,completed,5000
+O005,C001,2026-09-03,completed,10000
+O006,C001,2026-09-03,completed,10000
+O007,C001,2026-09-03,completed,10000
+O007,C001,2026-09-03,completed,12000
+O008,C001,2026-09-03,pending,10000
+O009,C999,2026-09-03,completed,10000
+O010,C001,2026-09-04,completed,10000
+,C001,2026-09-04,completed,10000
+O001,C001,2026-09-01,completed,30000
