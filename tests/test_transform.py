@@ -10,12 +10,12 @@ class TransformTests(unittest.TestCase):
 
     def test_duplicates_and_optional_values(self):
         clean, errors, duplicates = transform(self.raw)
-        self.assertEqual(len(duplicates), 2)
+        self.assertEqual(len(duplicates), 473)
         customer = next(r for r in clean["customers"] if r["customer_id"] == "C002")
         self.assertIsNone(customer["email"])
         self.assertEqual(customer["region"], "Unknown")
         self.assertNotIn("O007", [r["order_id"] for r in clean["orders"]])
-        self.assertEqual(sum(e["error_code"] == "KEY_CONFLICT" for e in errors), 2)
+        self.assertEqual(sum(e["error_code"] == "KEY_CONFLICT" for e in errors), 92)
 
     def test_invalid_numbers_do_not_become_zero(self):
         for value in ("", "1.2", "-1", "NaN", "1e3", "1000000000001"):

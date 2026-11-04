@@ -12,8 +12,11 @@ python -m src.pipeline --dry-run
 python -m unittest discover -s tests -v
 ```
 
-예제에는 40개 원본 행이 있으며 완전 중복, 키 충돌, 필수값 누락, 참조 오류, 중복 성공 결제, 금액 불일치가 포함됩니다.
-정상 주문은 O001·O002, 총매출은 **45,000원**, 주문 상세는 **3행**입니다.
+예제 데이터는 2025-01 ~ 2026-10 기간의 원본 129,618행(고객 2,028 · 상품 151 · 주문 30,081 · 주문 상세 66,262 · 결제 31,096)입니다.
+행의 약 2~3%에 완전 중복, 키 충돌, 필수값 누락, 참조 오류, 중복 성공 결제, 금액 불일치가 섞여 있습니다.
+정상 주문은 **27,055건**, 총매출은 **2,198,198,700원**, 주문 상세는 **59,921행**입니다.
+각 파일 맨 앞의 수업용 사례 40행(O001~O010 등)에서는 O001·O002만 매출로 인정됩니다.
+데이터 구성과 심어 둔 문제 목록은 [데이터 생성](docs/data_generation.md)을 참고하세요.
 실행별 JSON 보고서는 `outputs/<run_id>.json`에 생성됩니다. 이 디렉터리는 Git에서 제외됩니다.
 
 ## 프로젝트 구조
@@ -21,6 +24,7 @@ python -m unittest discover -s tests -v
 | 경로 | 역할 |
 |---|---|
 | `data/raw/*.csv` | 고객·상품·주문·주문 상세·결제 시도 합성 파일 |
+| `scripts/generate_data.py` | 합성 데이터 생성기 (seed 고정, 재현 가능) |
 | `src/config.py` | 이름 기반 Snowflake 연결·DB 설정 |
 | `src/extract.py` | CSV 읽기·파일과 컬럼 검사 |
 | `src/transform.py` | 중복·누락·형식 처리 |
@@ -93,7 +97,7 @@ python -m src.pipeline --load
 2. `streamlit/streamlit_app.py`를 앱 코드로 사용합니다.
 3. 앱 환경에서 `streamlit`, `snowflake-snowpark-python`, `pandas` 패키지를 사용할 수 있게 설정합니다.
 4. 앱 실행 역할은 MART 뷰와 해당 AUDIT 조회에 필요한 권한을 가져야 합니다. 학습 전용 역할로 먼저 확인하세요.
-5. 총매출 45,000원·주문 2건·평균 22,500원 및 상품별 합계를 확인합니다.
+5. 총매출 2,198,198,700원·주문 27,055건·평균 약 81,249원 및 상품별 합계를 확인합니다.
 
 이 앱은 Snowflake 활성 세션을 사용하므로 로컬 `streamlit run` 대상이 아닙니다. [공식 Streamlit 안내](https://docs.snowflake.com/en/developer-guide/streamlit/about-streamlit)
 
@@ -105,6 +109,7 @@ python -m src.pipeline --load
 - [처리 규칙·지표 정의](docs/data_rules.md)
 - [실측 검증 결과와 클라우드 검증 방법](docs/validation_results.md)
 - [AI 활용·리뷰 기록](docs/ai_review_log.md)
+- [데이터 생성과 정답표](docs/data_generation.md)
 
 ## 범위와 한계
 

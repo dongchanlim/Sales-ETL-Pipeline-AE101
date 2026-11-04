@@ -49,6 +49,6 @@ class SnowflakeRerunTests(unittest.TestCase):
                 with conn.cursor() as cur:
                     snapshots.append({t:cur.execute(f"SELECT * FROM DW.{t} ORDER BY {cols[0]}").fetchall() for t,cols in COLUMNS.items()})
             self.assertEqual(snapshots[0], snapshots[1])
-            self.assertEqual(len(snapshots[0]["fact_orders"]), 2)
+            self.assertEqual(len(snapshots[0]["fact_orders"]), 27055)
         finally:
             conn.close()
