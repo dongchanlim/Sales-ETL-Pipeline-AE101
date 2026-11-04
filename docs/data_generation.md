@@ -12,7 +12,7 @@ python -m src.pipeline --dry-run         # 아래 정답과 같은 결과가 나
 
 | 파일 | 행 수 | 특징 |
 |---|---:|---|
-| customers.csv | 2,028 | 지역 17개(인구 비례), 지역 누락 52명(→ Unknown), 이메일 누락 98명 |
+| customers.csv | 2,028 | 지역 17개(인구 비례), 지역 누락 52명(→ Unknown), 이메일 누락 98명 (생성 고객 기준, 수업용 C002 제외) |
 | products.csv | 151 | 8개 카테고리, 가격 1,000원 ~ 300,000원 |
 | orders.csv | 30,081 | 성장 추세, 주말·11~12월 성수기, 완료 약 92% / 취소 약 5% / 대기 약 2.5% |
 | order_items.csv | 66,262 | 주문당 1~5줄(평균 약 2.2), 12% 는 프로모션 단가 |
@@ -69,6 +69,18 @@ RAW → CORE → MART(스타 스키마) 구조로 같은 데이터를 처리하�
 | Unknown 고객·상품으로 연결된 라인 | 254 / 61 |
 | 품질 검사 17개 | 모두 0 |
 | 결제 요약 | 성공 27,702 / 실패 2,904 / 대기 360, 주문 없는 결제 108 |
+
+### 노트북으로 실행할 때
+
+Snowflake Notebook 버전(`ae101_enterprise_walkthrough.ipynb`, MART 전용 `ae101_mart_etl.ipynb`)도 기대값은 위 표와 같습니다. SQL 스크립트와 다른 점은 두 가지입니다.
+
+- STEP 2 : 노트북은 `SET load_id = UUID_STRING()` 을 허용하지 않으므로 `CORE.RUN_CTX` 에 `load_id`·`run_ts` 를 먼저 만들고, 세션 변수는 그 테이블에서 읽습니다.
+- STEP 7 : 하나의 트랜잭션 블록 대신 셀(7-0 가드 → 7-1 SCD2 차원 → 7-2 Fact MERGE → 7-3 품질 검사 → 7-4 상태 확정)로 나눕니다. 각 셀은 같은 `load_id` 로 다시 실행해도 결과가 같지만, 검사 실패 시 자동 ROLLBACK 은 없습니다.
+
+| 확인 셀 | 기대값 |
+|---|---|
+| 7-3 `AUDIT.DQ_RESULTS` | 17개 검사 모두 failures = 0 |
+| 7-4 `AUDIT.PIPELINE_RUNS` | status = SUCCESS, revenue_orders = 27,055, revenue_amount = 2,198,198,700 |
 
 ### 카테고리별 매출
 
