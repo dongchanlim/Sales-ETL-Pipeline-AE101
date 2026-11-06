@@ -8,15 +8,17 @@
 --   07:30                  : 배치(06:00)가 끝난 뒤의 시각. 배치가 RUNNING 인 동안 확인하면 알림이 갑니다.
 
 USE ROLE ACCOUNTADMIN;
+USE WAREHOUSE SNOWFLAKE_LEARNING_WH;
+SET CURRENT_WH = (SELECT CURRENT_WAREHOUSE());
 
 CREATE NOTIFICATION INTEGRATION IF NOT EXISTS AE101_EMAIL_INT
   TYPE = EMAIL
   ENABLED = TRUE
-  ALLOWED_RECIPIENTS = ('you@example.com');
+  ALLOWED_RECIPIENTS = ('dchanlim@gmail.com');
 
 CREATE OR REPLACE ALERT AE101_SALES_ENT.OPS.ALERT_DAILY_BATCH
-  WAREHOUSE = COMPUTE_WH
-  SCHEDULE = 'USING CRON 30 7 * * * Asia/Seoul'
+  WAREHOUSE = $CURRENT_WH
+  SCHEDULE = 'USING CRON 30 14 * * * America/Los_Angeles'
   IF (EXISTS (
     SELECT 1
     FROM (SELECT MAX_BY(status, started_at)                     AS last_status,
@@ -28,7 +30,7 @@ CREATE OR REPLACE ALERT AE101_SALES_ENT.OPS.ALERT_DAILY_BATCH
   THEN
     CALL SYSTEM$SEND_EMAIL(
       'AE101_EMAIL_INT',
-      'you@example.com',
+      'dchanlim@gmail.com',
       '[AE101] 일일 배치 확인 필요',
       '최근 배치가 SUCCESS 가 아니거나 26시간 넘게 성공 기록이 없습니다. AE101_SALES_ENT.MART.V_RUN_HISTORY 를 확인하세요.');
 
