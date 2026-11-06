@@ -1,6 +1,6 @@
 # 검증 결과
 
-2026-11-05 기준입니다. 로컬 Python 실행과 SQL 로직 대조는 완료했고, 실제 Snowflake 계정 실행·Streamlit 배포는 아직 하지 않았습니다.
+2026-11-06 기준입니다. 로컬 Python 실행과 SQL 로직 대조는 완료했고, 실제 Snowflake 계정 실행·Streamlit 배포는 아직 하지 않았습니다.
 
 ## 로컬 실측 결과 (`python -m src.pipeline --dry-run`)
 
@@ -35,7 +35,7 @@
 python -m unittest discover -s tests -v
 ```
 
-로컬 테스트 23개 통과, Snowflake 통합 테스트 1개는 명시적 설정이 없어 건너뜁니다.
+로컬 테스트 26개 통과, Snowflake 통합 테스트 1개는 명시적 설정이 없어 건너뜁니다.
 
 | 파일 | 확인 내용 |
 |---|---|
@@ -43,7 +43,7 @@ python -m unittest discover -s tests -v
 | `test_mart.py` | MART 행 수, 품질 검사 17개, Unknown 연결, 리포트·대시보드 뷰 값, 같은 입력 재실행 멱등성, SCD2, 소프트 삭제 |
 | `test_rerun.py` | 행 순서 변경·전체 중복에도 결과 불변, (선택) Snowflake 2회 적재 |
 | `test_load.py` | 가짜 연결로 `sql/` 파일 실행 순서, CORE 대사 불일치·품질 검사 실패·매출 0건 처리 |
-| `test_notebook_sync.py` | `sql/` 파일과 노트북 셀이 글자 그대로 같은지 |
+| `test_notebook_sync.py` | `sql/` 파일과 노트북 셀이 글자 그대로 같은지, 매일 배치 노트북이 워크스루 STEP 2~7 셀로만 만들어졌는지, 스케줄 SQL이 그 노트북을 배포하는지 |
 
 `test_load.py`는 호출 순서만 확인하며 Snowflake SQL 실행 증명은 아닙니다.
 
@@ -54,6 +54,20 @@ python -m unittest discover -s tests -v
 Snowflake 런타임(권한, 패키지, 컨테이너 런타임)에서의 동작은 별도로 확인해야 합니다.
 
 `streamlit/snowflake.yml` 은 Snowflake CLI 3.32 의 프로젝트 정의 로더로 읽어 확인했습니다. 앱 식별자 `AE101_SALES_ENT.MART.AE101_SALES_DASHBOARD`, 올릴 파일 3개, `query_warehouse` 기본값(`COMPUTE_WH`)과 `AE101_WAREHOUSE` 환경변수 덮어쓰기가 의도대로 해석되었습니다. 실제 `snow streamlit deploy` 는 실행하지 않았습니다.
+
+## 매일 배치 스케줄 로컬 점검
+
+`notebooks/ae101_daily_batch.ipynb` 의 가드·게이트 셀과 `orchestration/` 의 파이널라이저·알림 조건을 DuckDB 와 가짜 Snowpark 세션으로 실행했습니다.
+
+| 경우 | 결과 |
+|---|---|
+| 정상 주문 0건 | `daily_guard` 가 `FAILED` 기록 후 오류 |
+| 상태 `SUCCESS` / `FAILED` | `daily_gate` 통과 / 오류 |
+| 실행이 `RUNNING` 으로 남음 | 파이널라이저가 이번 `load_id` 만 `FAILED` 로 바꿈. 이미 확정된 실행은 그대로 |
+| 최근 실행 `FAILED`·`RUNNING`, 마지막 성공 26시간 초과, 기록 없음 | 알림 조건 참 |
+| 최근 실행 `SUCCESS` (2시간 전) | 알림 조건 거짓 |
+
+DuckDB 로 바꿔 실행한 것이므로 Snowflake 태스크·노트북·알림이 실제로 동작한다는 증명은 아닙니다.
 
 ## 실제 Snowflake 재실행 테스트
 
@@ -77,3 +91,5 @@ Windows PowerShell에서는 `$env:AE101_DATABASE="AE101_SALES_ENT_TEST"`, `$env:
 | `python -m src.pipeline --load` 2회 | 미실행 |
 | 보안 정책 (`sql/11_security.sql`, Enterprise) | 미실행 |
 | Streamlit 대시보드 (Snowflake 배포) | 미실행 |
+| 매일 배치 스케줄 (`orchestration/daily_schedule.sql`, `EXECUTE TASK` 1회) | 미실행 |
+| 실패·지연 알림 (`orchestration/daily_alert.sql`) | 미실행 |

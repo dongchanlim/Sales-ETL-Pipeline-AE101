@@ -10,6 +10,7 @@ SQL·Python·데이터 모델링·ETL·Git을 배운 학습자를 위한 1주 �
 | Snowflake Notebook (기준) | `notebooks/ae101_enterprise_walkthrough.ipynb` | 예 |
 | Python 로컬 | `python -m src.pipeline --dry-run` | 아니요 |
 | Python → Snowflake | `python -m src.pipeline --load` | 예 |
+| 매일 자동 실행 (Task Graph) | `orchestration/daily_schedule.sql` → `notebooks/ae101_daily_batch.ipynb` | 예 |
 
 ## 바로 실행하기 — Snowflake 없이
 
@@ -36,6 +37,8 @@ python -m unittest discover -s tests -v
 | `scripts/generate_data.py` | 합성 데이터 생성기 (seed 고정, 재현 가능) |
 | `notebooks/ae101_enterprise_walkthrough.ipynb` | 전체 워크스루 (STEP 0~12). **로직의 기준** |
 | `notebooks/ae101_mart_etl.ipynb` | MART만 생성·반영하는 노트북 (CORE 이후) |
+| `notebooks/ae101_daily_batch.ipynb` | 매일 배치 노트북 (워크스루 STEP 2~7 셀 + 가드·게이트). `scripts/build_daily_notebook.py` 로 생성 |
+| `orchestration/` | 매일 배치 스케줄 설치(`daily_schedule.sql`)와 실패·지연 알림(`daily_alert.sql`, 선택) |
 | `sql/00_setup.sql` ~ `11_security.sql` | 노트북 셀을 단계별 파일로 나눈 것. 노트북과 글자 그대로 같음 |
 | `src/extract.py` | CSV → RAW 형태 (src_file, src_row) |
 | `src/core.py` | CORE 정제·매출 판정 (`sql/03`, `04`) |
@@ -139,10 +142,23 @@ Streamlit in Snowflake 는 **앱 소유 역할 권한**으로 실행됩니다. �
 `Object 'AE101_SALES_ENT.MART.V_SALES_LINE' does not exist or not authorized` 가 나오면 1단계(STEP 8)를 이 저장소의 최신 노트북·SQL로 다시 실행했는지 먼저 확인합니다(`SHOW VIEWS IN SCHEMA AE101_SALES_ENT.MART;`).
 이 앱은 Snowflake 세션을 사용하므로 로컬 `streamlit run` 대상이 아닙니다. [공식 Streamlit 안내](https://docs.snowflake.com/en/developer-guide/streamlit/about-streamlit)
 
+## 매일 자동 실행
+
+Snowflake Task Graph가 매일 06:00(Asia/Seoul)에 `notebooks/ae101_daily_batch.ipynb` 를 실행합니다. 이 노트북에는 워크스루 STEP 2~7 셀만 들어 있습니다.
+STEP 1(DDL), STEP 8(리포트 뷰), STEP 9(보안)는 처음 한 번만 실행하고 매일 다시 실행하지 않습니다. STEP 1을 반복하면 `DIM_DATE` 등이 다시 만들어져 STEP 9의 권한이 사라집니다.
+
+1. 워크스루 STEP 1·8(필요하면 9)을 한 번 실행합니다.
+2. `orchestration/daily_schedule.sql` 의 `COMPUTE_WH` 를 실제 웨어하우스 이름으로 바꿔 실행합니다. 노트북 배포, 루트 태스크, 실패 정리용 파이널라이저가 `AE101_SALES_ENT.OPS` 에 만들어집니다.
+3. `EXECUTE TASK AE101_SALES_ENT.OPS.T_DAILY_BATCH;` 로 한 번 실행해 `MART.V_RUN_HISTORY` 가 `SUCCESS` 인지 확인합니다.
+4. (선택) `orchestration/daily_alert.sql` 로 실패·지연 메일 알림을 켭니다.
+
+스케줄이 켜져 있는 동안 워크스루를 직접 실습하려면 먼저 태스크를 `SUSPEND` 하세요. 스케줄러 비교, 실패 처리, 운영 방법은 [매일 배치 스케줄링](docs/scheduling.md)에 있습니다.
+
 ## 학습 문서
 
 - [데이터 모델 · ERD](docs/erd.md)
 - [파이프라인 실행 순서와 복구](docs/execution_flow.md)
+- [매일 배치 스케줄링](docs/scheduling.md)
 - [데이터 사전](docs/data_dictionary.md)
 - [처리 규칙·지표 정의](docs/data_rules.md)
 - [검증 결과와 클라우드 검증 방법](docs/validation_results.md)

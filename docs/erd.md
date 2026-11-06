@@ -10,6 +10,7 @@
 | MART | 분석용 스타 스키마 (차원 5 + Fact 3) + 리포트 뷰 | 아래 ERD, `V_REVENUE_*` 등 |
 | AUDIT | 실행 기록, 데이터 이슈, 품질 검사 결과 | `PIPELINE_RUNS`, `DATA_ISSUES`, `DQ_RESULTS` |
 | SECURITY | 역할-지역 매핑, 행 접근 정책, 마스킹 정책 (선택) | `REGION_ACCESS_MAP`, `RAP_CUSTOMER_REGION`, `MASK_EMAIL` |
+| OPS | 매일 배치 스케줄러 (선택, `orchestration/daily_schedule.sql` 이 생성) | 노트북 `AE101_DAILY_BATCH`, 태스크 `T_DAILY_BATCH`·`T_DAILY_BATCH_FINALIZER`, 알림 `ALERT_DAILY_BATCH` |
 
 ## 원천 모델 (RAW)
 

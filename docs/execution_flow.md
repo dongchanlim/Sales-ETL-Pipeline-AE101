@@ -7,6 +7,7 @@
 | Snowflake Notebook | `notebooks/ae101_enterprise_walkthrough.ipynb` | Git 저장소 스테이지 (`sql/02`) | 셀을 위에서 아래로 실행 |
 | Python → Snowflake | `python -m src.pipeline --load` | 로컬 CSV를 같은 형태로 INSERT | `sql/03 ~ 10` 파일을 순서대로 실행 |
 | Python 로컬 | `python -m src.pipeline --dry-run` | 메모리 | `src/core.py`, `src/mart.py`, `src/reports.py` 가 같은 규칙을 계산 |
+| 매일 자동 실행 | Task Graph → `notebooks/ae101_daily_batch.ipynb` | Git 저장소 스테이지 (STEP 3 셀) | STEP 2~7 셀만 실행 (STEP 1·8·9는 한 번만). [스케줄링](scheduling.md) |
 
 MART만 다시 반영하고 싶으면 `notebooks/ae101_mart_etl.ipynb`를 사용합니다 (CORE까지 끝난 뒤).
 
