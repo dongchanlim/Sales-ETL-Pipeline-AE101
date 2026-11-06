@@ -105,3 +105,36 @@ def headline(state):
     revenue = sum(r["revenue"] for r in daily)
     orders = sum(r["order_count"] for r in daily)
     return {"revenue": revenue, "orders": orders, "avg_order_value": round(revenue / orders) if orders else None}
+
+
+def sales_line(state):
+    """V_SALES_LINE : 대시보드용 라인 단위 매출 (매출 인식 + 미삭제, 지역 = 주문 당시)."""
+    dates = _index(state["dim_date"], "date_key")
+    customers = _index(state["dim_customer"], "customer_key")
+    products = _index(state["dim_product"], "product_key")
+    out = []
+    for r in _live_revenue_lines(state):
+        d, c, p = dates[r["order_date_key"]], customers[r["customer_key"]], products[r["product_key"]]
+        out.append({"order_id": r["order_id"], "order_item_id": r["order_item_id"], "order_date": d["calendar_date"],
+                    "year_month": d["year_month"], "is_weekend": d["is_weekend"], "customer_id": c["customer_id"],
+                    "region": c["region"], "product_id": p["product_id"], "product_name": p["product_name"],
+                    "category": p["category"], "quantity": r["quantity"], "unit_price": r["unit_price"],
+                    "revenue": r["line_amount"]})
+    return out
+
+
+def payment_daily(state):
+    """V_PAYMENT_DAILY : 결제일·지역·상태별 시도 수·금액·주문 없는 결제 수."""
+    dates = _index(state["dim_date"], "date_key")
+    customers = _index(state["dim_customer"], "customer_key")
+    status = _index(state["dim_payment_status"], "payment_status_key")
+    agg = defaultdict(lambda: [0, 0, 0])
+    for p in state["fact_payment"]:
+        if p["is_deleted"]:
+            continue
+        key = (dates[p["paid_date_key"]]["calendar_date"], customers[p["customer_key"]]["region"],
+               status[p["payment_status_key"]]["status_name"])
+        a = agg[key]
+        a[0] += 1; a[1] += p["payment_amount"]; a[2] += 0 if p["has_valid_order"] else 1
+    return [{"paid_date": k[0], "region": k[1], "payment_status": k[2], "attempts": v[0], "amount": v[1],
+             "orphan_payments": v[2]} for k, v in sorted(agg.items())]

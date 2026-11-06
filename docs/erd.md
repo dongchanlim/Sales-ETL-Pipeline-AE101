@@ -186,4 +186,10 @@ erDiagram
 | V_REVENUE_BY_REGION_ASWAS / ASIS | 주문 당시 / 현재 고객 지역별 매출 |
 | V_ORDER_QUALITY | 모든 주문의 매출 인식 여부와 제외 사유 |
 | V_PAYMENT_SUMMARY | 결제 상태별 시도 수·금액·주문 없는 결제 수 |
+| V_SALES_LINE | 매출 인식 라인 단위 (주문일·지역·카테고리·상품). 대시보드 필터용 |
+| V_PAYMENT_DAILY | 결제일·지역·상태별 시도 수·금액·주문 없는 결제 수 |
 | V_LATEST_RUN | 가장 최근 실행 기록 |
+| V_RUN_HISTORY | 실행 이력 + 소요 시간 + 품질 검사 실패 수 (AUDIT 요약) |
+| V_DQ_RESULTS / V_DATA_ISSUE_SUMMARY | 실행별 품질 검사 결과 / 이슈 건수 요약 (개별 행·키 값 없음) |
+
+운영 뷰(V_RUN_HISTORY 등)는 AUDIT 테이블 권한 없이 대시보드가 실행 상태를 보여 주기 위한 요약입니다.

@@ -59,6 +59,16 @@ class MartTests(unittest.TestCase):
         gross = sum(r["line_amount"] for r in self.state["fact_sales_line"] if not r["is_deleted"])
         self.assertEqual(gross, 2421319800)
 
+    def test_dashboard_views(self):
+        lines = reports.sales_line(self.state)
+        self.assertEqual(len(lines), 59921)
+        self.assertEqual(sum(r["revenue"] for r in lines), 2198198700)
+        self.assertEqual(len({r["order_id"] for r in lines}), 27055)
+        self.assertEqual(sum(r["revenue"] for r in lines if r["region"] == "서울"), 420094900)
+        pay = reports.payment_daily(self.state)
+        self.assertEqual(sum(r["attempts"] for r in pay), 30966)
+        self.assertEqual(sum(r["orphan_payments"] for r in pay), 108)
+
     def test_same_input_twice_is_idempotent(self):
         again = prepare(RAW, self.state, "L2", "2026-11-04 11:00:00")
         self.assertEqual(again["run"]["status"], "SUCCESS")

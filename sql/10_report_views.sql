@@ -69,7 +69,48 @@ JOIN MART.DIM_PAYMENT_STATUS s ON f.payment_status_key = s.payment_status_key
 JOIN MART.DIM_CUSTOMER c       ON f.customer_key = c.customer_key
 WHERE NOT f.is_deleted
 GROUP BY s.status_name;
+-- 대시보드용 라인 단위 매출 : 기간·지역·카테고리 필터를 한 뷰에서 처리 (지역 = 주문 당시)
+CREATE OR REPLACE VIEW MART.V_SALES_LINE AS
+SELECT f.order_id, f.order_item_id, d.calendar_date AS order_date, d.year_month, d.is_weekend,
+       c.customer_id, c.region, p.product_id, p.product_name, p.category,
+       f.quantity, f.unit_price, f.line_amount AS revenue
+FROM MART.FACT_SALES_LINE f
+JOIN MART.DIM_DATE d     ON f.order_date_key = d.date_key
+JOIN MART.DIM_CUSTOMER c ON f.customer_key = c.customer_key
+JOIN MART.DIM_PRODUCT p  ON f.product_key = p.product_key
+WHERE f.is_revenue_eligible AND NOT f.is_deleted;
+
+-- 결제 시도 일별·지역별·상태별 (성공률 추이용)
+CREATE OR REPLACE VIEW MART.V_PAYMENT_DAILY AS
+SELECT d.calendar_date AS paid_date, c.region, s.status_name AS payment_status,
+       COUNT(*) AS attempts, SUM(f.payment_amount) AS amount,
+       SUM(CASE WHEN f.has_valid_order THEN 0 ELSE 1 END) AS orphan_payments
+FROM MART.FACT_PAYMENT f
+JOIN MART.DIM_DATE d           ON f.paid_date_key = d.date_key
+JOIN MART.DIM_PAYMENT_STATUS s ON f.payment_status_key = s.payment_status_key
+JOIN MART.DIM_CUSTOMER c       ON f.customer_key = c.customer_key
+WHERE NOT f.is_deleted
+GROUP BY d.calendar_date, c.region, s.status_name;
 -- <<< LOGIC END (뷰)
 
 CREATE OR REPLACE VIEW MART.V_LATEST_RUN AS
 SELECT * FROM AUDIT.PIPELINE_RUNS QUALIFY ROW_NUMBER() OVER (ORDER BY started_at DESC) = 1;
+
+-- 운영 뷰 : 대시보드가 AUDIT 테이블 권한 없이 실행 이력·품질 결과를 보도록 요약만 공개합니다 (개별 행·키 값 없음)
+CREATE OR REPLACE VIEW MART.V_RUN_HISTORY AS
+SELECT r.load_id, r.status, r.started_at, r.finished_at,
+       DATEDIFF('second', r.started_at, r.finished_at) AS duration_sec,
+       r.input_rows, r.duplicate_rows, r.quarantined_rows, r.flagged_issues,
+       r.revenue_orders, r.revenue_amount, r.message,
+       COALESCE(q.failed_checks, 0) AS failed_checks, COALESCE(q.total_checks, 0) AS total_checks
+FROM AUDIT.PIPELINE_RUNS r
+LEFT JOIN (SELECT load_id, SUM(CASE WHEN failures > 0 THEN 1 ELSE 0 END) AS failed_checks, COUNT(*) AS total_checks
+           FROM AUDIT.DQ_RESULTS GROUP BY load_id) q ON q.load_id = r.load_id;
+
+CREATE OR REPLACE VIEW MART.V_DQ_RESULTS AS
+SELECT load_id, check_name, failures FROM AUDIT.DQ_RESULTS;
+
+CREATE OR REPLACE VIEW MART.V_DATA_ISSUE_SUMMARY AS
+SELECT load_id, action, error_code, source_file, COUNT(*) AS events
+FROM AUDIT.DATA_ISSUES
+GROUP BY load_id, action, error_code, source_file;

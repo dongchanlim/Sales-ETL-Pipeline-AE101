@@ -7,23 +7,23 @@ ALTER GIT REPOSITORY AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE FETCH;
 
 INSERT INTO RAW.CUSTOMERS (load_id, loaded_at, src_file, src_row, customer_id, customer_name, email, region)
 SELECT $load_id, $run_ts, 'customers.csv', ROW_NUMBER() OVER (ORDER BY METADATA$FILE_ROW_NUMBER) + 1, $1, $2, $3, $4
-FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/realistic-scale-data/data/raw/customers.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
+FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/main/data/raw/customers.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
 
 INSERT INTO RAW.PRODUCTS (load_id, loaded_at, src_file, src_row, product_id, product_name, category)
 SELECT $load_id, $run_ts, 'products.csv', ROW_NUMBER() OVER (ORDER BY METADATA$FILE_ROW_NUMBER) + 1, $1, $2, $3
-FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/realistic-scale-data/data/raw/products.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
+FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/main/data/raw/products.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
 
 INSERT INTO RAW.ORDERS (load_id, loaded_at, src_file, src_row, order_id, customer_id, order_date, order_status, order_amount)
 SELECT $load_id, $run_ts, 'orders.csv', ROW_NUMBER() OVER (ORDER BY METADATA$FILE_ROW_NUMBER) + 1, $1, $2, $3, $4, $5
-FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/realistic-scale-data/data/raw/orders.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
+FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/main/data/raw/orders.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
 
 INSERT INTO RAW.ORDER_ITEMS (load_id, loaded_at, src_file, src_row, order_item_id, order_id, product_id, quantity, unit_price)
 SELECT $load_id, $run_ts, 'order_items.csv', ROW_NUMBER() OVER (ORDER BY METADATA$FILE_ROW_NUMBER) + 1, $1, $2, $3, $4, $5
-FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/realistic-scale-data/data/raw/order_items.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
+FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/main/data/raw/order_items.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
 
 INSERT INTO RAW.PAYMENTS (load_id, loaded_at, src_file, src_row, payment_id, order_id, payment_status, payment_amount, paid_at)
 SELECT $load_id, $run_ts, 'payments.csv', ROW_NUMBER() OVER (ORDER BY METADATA$FILE_ROW_NUMBER) + 1, $1, $2, $3, $4, $5
-FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/realistic-scale-data/data/raw/payments.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
+FROM @AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/main/data/raw/payments.csv (FILE_FORMAT => 'AE101_SALES_ENT.RAW.CSV_FORMAT');
 
 -- 확인: 배치별 행 수 (최신 배치 합계 129,618 = 고객 2,028 + 상품 151 + 주문 30,081 + 상세 66,262 + 결제 31,096)
 SELECT 'customers' AS file, load_id, COUNT(*) AS row_count FROM RAW.CUSTOMERS GROUP BY load_id

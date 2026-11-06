@@ -1,0 +1,24 @@
+# Streamlit in Snowflake 배포 정의 (Snowflake CLI: `snow streamlit deploy`)
+# query_warehouse 는 데이터베이스 이름이 아니라 웨어하우스 이름입니다. `SHOW WAREHOUSES;` 로 확인하세요.
+# 바꾸는 방법 (셋 중 하나):
+#   1) 아래 env.AE101_WAREHOUSE 기본값을 실제 이름으로 수정
+#   2) 환경변수:  export AE101_WAREHOUSE=MY_WH      (PowerShell: $env:AE101_WAREHOUSE="MY_WH")
+#   3) 실행 옵션:  snow streamlit deploy --replace --env AE101_WAREHOUSE=MY_WH
+definition_version: 2
+env:
+  AE101_WAREHOUSE: "COMPUTE_WH"
+entities:
+  streamlit_app:
+    type: streamlit
+    identifier:
+      name: AE101_SALES_DASHBOARD
+      database: AE101_SALES_ENT
+      schema: MART
+    main_file: streamlit_app.py
+    title: "AE101 Project Dashboard"
+    query_warehouse: <% ctx.env.AE101_WAREHOUSE %>
+    compute_pool: "SYSTEM_COMPUTE_POOL_CPU"
+    artifacts:
+      - pyproject.toml
+      - streamlit_app.py
+      - .streamlit/config.toml

@@ -1,6 +1,6 @@
 # 검증 결과
 
-2026-11-04 기준입니다. 로컬 Python 실행과 SQL 로직 대조는 완료했고, 실제 Snowflake 계정 실행·Streamlit 배포는 아직 하지 않았습니다.
+2026-11-05 기준입니다. 로컬 Python 실행과 SQL 로직 대조는 완료했고, 실제 Snowflake 계정 실행·Streamlit 배포는 아직 하지 않았습니다.
 
 ## 로컬 실측 결과 (`python -m src.pipeline --dry-run`)
 
@@ -25,7 +25,7 @@
 
 | 실행 | 입력 | 결과 |
 |---|---|---|
-| 1회차 | `data/raw` 그대로 | 요약 6개 지표, 이슈 1,473건, 차원 2개, Fact 3개, 품질 검사 17개, 리포트 뷰 7개 모두 일치 |
+| 1회차 | `data/raw` 그대로 | 요약 6개 지표, 이슈 1,473건, 차원 2개, Fact 3개, 품질 검사 17개, 리포트 뷰 9개 모두 일치 |
 | 2회차 | C002 지역을 부산으로 변경 | SCD2 버전(닫힌 Unknown 버전 + 새 부산 버전), As-Was / As-Is 지역 매출 일치 |
 | 3회차 | 주문 상세 1행 삭제 | 해당 행 `is_deleted = TRUE` 소프트 삭제 및 나머지 결과 일치 |
 
@@ -35,17 +35,25 @@
 python -m unittest discover -s tests -v
 ```
 
-로컬 테스트 21개 통과, Snowflake 통합 테스트 1개는 명시적 설정이 없어 건너뜁니다.
+로컬 테스트 23개 통과, Snowflake 통합 테스트 1개는 명시적 설정이 없어 건너뜁니다.
 
 | 파일 | 확인 내용 |
 |---|---|
 | `test_core.py` | RUN_SUMMARY, 이슈 action·코드별 건수, 제외 사유, 수업용 사례 O001~O010, 숫자 파싱, 필수 헤더 |
-| `test_mart.py` | MART 행 수, 품질 검사 17개, Unknown 연결, 리포트 뷰 값, 같은 입력 재실행 멱등성, SCD2, 소프트 삭제 |
+| `test_mart.py` | MART 행 수, 품질 검사 17개, Unknown 연결, 리포트·대시보드 뷰 값, 같은 입력 재실행 멱등성, SCD2, 소프트 삭제 |
 | `test_rerun.py` | 행 순서 변경·전체 중복에도 결과 불변, (선택) Snowflake 2회 적재 |
 | `test_load.py` | 가짜 연결로 `sql/` 파일 실행 순서, CORE 대사 불일치·품질 검사 실패·매출 0건 처리 |
 | `test_notebook_sync.py` | `sql/` 파일과 노트북 셀이 글자 그대로 같은지 |
 
 `test_load.py`는 호출 순서만 확인하며 Snowflake SQL 실행 증명은 아닙니다.
+
+## 대시보드 로컬 점검
+
+`streamlit/streamlit_app.py` 를 DuckDB 로 만든 같은 MART 뷰에 연결해(가짜 Snowpark 세션) Streamlit AppTest 와 브라우저로 실행했습니다.
+5개 탭, 기간 프리셋 6종, 비교 기준 3종, 집계 단위 3종, 지역·카테고리 필터 조합에서 예외 없이 렌더링되었고, 전체 기간 매출 2,198,198,700원 · 주문 27,055건, 서울 필터 매출 420,094,900원이 정답표와 같았습니다.
+Snowflake 런타임(권한, 패키지, 컨테이너 런타임)에서의 동작은 별도로 확인해야 합니다.
+
+`streamlit/snowflake.yml` 은 Snowflake CLI 3.32 의 프로젝트 정의 로더로 읽어 확인했습니다. 앱 식별자 `AE101_SALES_ENT.MART.AE101_SALES_DASHBOARD`, 올릴 파일 3개, `query_warehouse` 기본값(`COMPUTE_WH`)과 `AE101_WAREHOUSE` 환경변수 덮어쓰기가 의도대로 해석되었습니다. 실제 `snow streamlit deploy` 는 실행하지 않았습니다.
 
 ## 실제 Snowflake 재실행 테스트
 
@@ -68,4 +76,4 @@ Windows PowerShell에서는 `$env:AE101_DATABASE="AE101_SALES_ENT_TEST"`, `$env:
 | 노트북 전체 실행 (STEP 0~11) | 미실행 |
 | `python -m src.pipeline --load` 2회 | 미실행 |
 | 보안 정책 (`sql/11_security.sql`, Enterprise) | 미실행 |
-| Streamlit 필터·매출·품질 화면 | 미실행 |
+| Streamlit 대시보드 (Snowflake 배포) | 미실행 |
