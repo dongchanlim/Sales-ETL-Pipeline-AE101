@@ -16,6 +16,8 @@ USE DATABASE AE101_SALES_ENT;
 CREATE SCHEMA IF NOT EXISTS OPS;          -- 스케줄러 객체(노트북·태스크·알림)는 데이터와 분리해 OPS 스키마에 둡니다
 USE SCHEMA OPS;
 
+SET CURRENT_WH = (SELECT CURRENT_WAREHOUSE());
+
 -- 1. 이미 설치된 스케줄이 있으면 먼저 멈춥니다. (태스크를 바꾸려면 루트 태스크가 멈춰 있어야 합니다)
 ALTER TASK IF EXISTS OPS.T_DAILY_BATCH SUSPEND;
 
@@ -26,7 +28,7 @@ ALTER GIT REPOSITORY AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE FETCH;
 CREATE OR REPLACE NOTEBOOK OPS.AE101_DAILY_BATCH
   FROM '@AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/main/notebooks/'
   MAIN_FILE = 'ae101_daily_batch.ipynb'
-  QUERY_WAREHOUSE = COMPUTE_WH
+  QUERY_WAREHOUSE = $CURRENT_WH
   COMMENT = 'AE101 daily batch (walkthrough STEP 2-7). Deployed by orchestration/daily_schedule.sql';
 
 -- SQL 로 만든 노트북에는 실행 가능한 버전(live version)이 없어 EXECUTE NOTEBOOK 이 실패합니다. 마지막 버전을 live 로 지정합니다.
@@ -35,7 +37,7 @@ ALTER NOTEBOOK OPS.AE101_DAILY_BATCH ADD LIVE VERSION FROM LAST;
 -- 3. 루트 태스크 : 매일 06:00 에 노트북을 실행합니다.
 --    한 번에 하나의 실행만 허용(기본 NO_OVERLAP)되므로, 전날 배치가 끝나지 않았으면 그날 실행은 건너뜁니다.
 CREATE OR REPLACE TASK OPS.T_DAILY_BATCH
-  WAREHOUSE = COMPUTE_WH
+  WAREHOUSE = $CURRENT_WH
   SCHEDULE = 'USING CRON 0 6 * * * Asia/Seoul'
   USER_TASK_TIMEOUT_MS = 3600000            -- 1시간 넘게 걸리면 실패 처리 (보통 몇 분)
   SUSPEND_TASK_AFTER_NUM_FAILURES = 3       -- 3번 연속 실패하면 자동 정지: 원인을 고치기 전까지 RAW 배치가 쌓이지 않게
@@ -48,7 +50,7 @@ AS
 --    노트북이 중간 셀에서 멈춰 이번 실행이 RUNNING 으로 남았다면 FAILED 로 닫아, 대시보드와 V_RUN_HISTORY 에 실패가 보이게 합니다.
 --    정상 종료(SUCCESS / FAILED 확정)된 실행은 조건에 걸리지 않아 아무것도 바꾸지 않습니다.
 CREATE OR REPLACE TASK OPS.T_DAILY_BATCH_FINALIZER
-  WAREHOUSE = COMPUTE_WH
+  WAREHOUSE = $CURRENT_WH
   FINALIZE = OPS.T_DAILY_BATCH
   COMMENT = 'AE101 daily batch finalizer: closes a run left RUNNING'
 AS
