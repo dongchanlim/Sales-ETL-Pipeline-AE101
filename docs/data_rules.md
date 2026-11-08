@@ -18,8 +18,62 @@
 1. 앞뒤 공백을 제거하고 빈 문자열은 NULL로 봅니다. 숫자 변환 실패를 0으로 바꾸지 않습니다.
 2. email은 선택값(NULL 유지), region은 선택값(없으면 `Unknown`)입니다. 나머지 컬럼은 필수입니다.
 3. **참조 오류는 격리하지 않고 표시(FLAGGED)합니다.** 없는 고객을 가리키는 주문은 `customer_key = -1`, 없는 상품을 가리키는 주문 상세는 `product_key = -1`로 적재합니다. 주문이 없는 결제는 `has_valid_order = FALSE`로 적재합니다.
-4. 주문이 없는 주문 상세는 날짜·고객을 알 수 없으므로 격리(QUARANTINED, `INVALID_REFERENCE`)합니다.
+4. 주문이 없는 주문 상세는 날짜·고객·상태를 알 수 없으므로 격리(QUARANTINED, `INVALID_REFERENCE`)합니다. 참조 오류 중 이 경우만 격리하는 이유는 아래 [INVALID_REFERENCE: 네 가지 경우](#invalid_reference-네-가지-경우)를 보세요.
 5. 고객·상품은 `hash_diff`(속성 값의 MD5)를 계산해 두고 MART의 SCD2 변경 감지에 씁니다.
+
+### INVALID_REFERENCE: 네 가지 경우
+
+`INVALID_REFERENCE`는 "가리키는 상대 행이 CORE에 없다"는 오류 코드이고, STEP 4의 네 곳에서 만들어집니다. 코드는 같지만 처리는 둘로 갈리므로, 구분하려면 `action`과 `error_detail`을 함께 보세요.
+
+| 경우 | `action` | `error_detail` | 적재 결과 | 연결된 주문의 매출 | 첫 실행 건수 |
+|---|---|---|---|---|---:|
+| 주문의 고객이 없음 | FLAGGED | `Unknown customer: loaded with customer_key = -1` | 적재. `customer_key = -1` | 제외 (DEPENDENCY_ERROR) | 117 |
+| 주문 상세의 상품이 없음 | FLAGGED | `Unknown product: loaded with product_key = -1` | 적재. `product_key = -1` | 제외 (DEPENDENCY_ERROR) | 61 |
+| 결제의 주문이 없음 | FLAGGED | `Parent order not found: loaded with customer_key = -1` | 적재. `has_valid_order = FALSE`, MART에서 `customer_key = -1` | 해당 없음 (주문이 CORE에 없음) | 108 |
+| 주문 상세의 주문이 없음 | **QUARANTINED** | `Parent order not found: quarantined` | **적재 안 함**. `AUDIT.DATA_ISSUES`에만 남음 | 해당 없음 (주문이 CORE에 없음) | 197 |
+
+건수는 기본 데이터(`data/raw`)를 처음 실행한 결과이며, 위 세 줄의 합이 FLAGGED 286건, 마지막 줄이 QUARANTINED 197건입니다. 결제와 주문 상세의 `error_detail`은 둘 다 `Parent order not found`로 시작하지만 `action`이 다르니 혼동하지 마세요.
+
+**판단 기준: 그 행이 자기 정보만으로 Fact 행이 될 수 있는가.**
+
+- 앞의 세 경우는 모르는 것이 키 하나뿐입니다. 주문은 날짜·상태·금액이, 주문 상세는 수량·금액과 주문 헤더에서 오는 고객·날짜가, 결제는 결제 시각·상태·금액이 그대로 있습니다. 모르는 키만 Unknown 멤버(`-1`)에 연결하면 나머지 열로 집계할 수 있고, 표시(FLAGGED)로 원인도 추적됩니다.
+- 주문 상세는 고객·주문일·주문 상태를 주문 헤더에서 가져옵니다(`CORE.SALES_LINE_PREP`이 `ORDER_ITEMS`와 `ORDER_QUALITY`를 내부 조인). 주문이 없으면 세 가지를 한꺼번에 모릅니다. 이 행을 `-1`로 적재하면 다음 문제가 생깁니다.
+    1. 고객·날짜·상태가 모두 Unknown이라 누구에게 언제 판 것인지 집계할 수 없습니다. Unknown 멤버는 한 차원이 불명일 때 쓰는 장치입니다.
+    2. 주문일이 없으면 고객·상품의 SCD2 버전을 고르는 기준 날짜가 없습니다.
+    3. 주문이 없으니 `FACT_ORDER_LIFECYCLE` 행도 없어서 이 라인이 매출로 인정되는지 판정할 수 없습니다.
+- 결제는 주문이 없어도 `paid_at`으로 날짜 키를 만들 수 있고, 상태·금액도 자기 값입니다. 주문에서 오던 고객만 모르므로 `customer_key = -1`로 적재합니다(`CORE.PAYMENT_PREP`은 `PAYMENTS`에 `ORDERS`를 LEFT JOIN).
+
+**"주문이 없다"의 뜻.** 판단 기준은 "`CORE.ORDERS`에 없다"입니다. 원본에 아예 없는 경우뿐 아니라, 원본에는 있지만 STEP 4에서 격리된 주문(`KEY_CONFLICT`, `INVALID_VALUE`)도 포함합니다. 고객·상품도 같은 방식입니다. 그래서 부모 행 하나가 격리되면 그 자식 행이 연달아 `INVALID_REFERENCE`로 잡힙니다.
+
+| 경우 | 부모가 원본에 없음 | 부모는 원본에 있으나 격리됨 |
+|---|---:|---:|
+| 주문의 고객이 없음 | 81 | 36 |
+| 주문 상세의 상품이 없음 | 61 | 0 |
+| 결제의 주문이 없음 | 30 | 78 |
+| 주문 상세의 주문이 없음 | 41 | 156 |
+
+이슈 수를 원인 수로 읽지 마세요. 오른쪽 열의 건수는 부모의 `KEY_CONFLICT`·`INVALID_VALUE`를 고치면 함께 사라집니다. 먼저 부모의 이슈를 확인하세요.
+
+```sql
+-- 최근 실행의 INVALID_REFERENCE 를 경우별로 (action 까지 같이 봄)
+SELECT action, error_detail, COUNT(*) AS cnt
+FROM AUDIT.DATA_ISSUES
+WHERE load_id = (SELECT load_id FROM MART.V_LATEST_RUN)
+  AND error_code = 'INVALID_REFERENCE'
+GROUP BY action, error_detail
+ORDER BY action, error_detail;
+
+-- 부모 주문이 없는 상세·결제를 원인별로: 주문이 원본에 없는지, 있는데 격리됐는지
+SELECT i.source_file,
+       CASE WHEN o.order_id IS NULL THEN '주문이 원본에 없음' ELSE '주문은 있으나 격리됨' END AS cause,
+       COUNT(*) AS cnt
+FROM AUDIT.DATA_ISSUES i
+LEFT JOIN (SELECT DISTINCT TRIM(order_id) AS order_id FROM RAW.V_ORDERS_LATEST) o ON i.order_id = o.order_id
+WHERE i.load_id = (SELECT load_id FROM MART.V_LATEST_RUN)
+  AND i.error_detail LIKE 'Parent order not found%'
+GROUP BY i.source_file, cause
+ORDER BY i.source_file, cause;
+```
 
 ## 매출 인식 (CORE, STEP 5)
 
