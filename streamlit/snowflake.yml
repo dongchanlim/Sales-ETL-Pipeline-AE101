@@ -16,7 +16,7 @@ entities:
       schema: MART
     main_file: streamlit_app.py
     title: "AE101 Project Dashboard"
-    query_warehouse: <% ctx.env.AE101_WAREHOUSE %>
+    query_warehouse: "SNOWFLAKE_LEARNING_WH"
     compute_pool: "SYSTEM_COMPUTE_POOL_CPU"
     artifacts:
       - pyproject.toml
