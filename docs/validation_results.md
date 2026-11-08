@@ -35,7 +35,7 @@
 python -m unittest discover -s tests -v
 ```
 
-로컬 테스트 26개 통과, Snowflake 통합 테스트 1개는 명시적 설정이 없어 건너뜁니다.
+로컬 테스트 28개 통과, Snowflake 통합 테스트 1개는 명시적 설정이 없어 건너뜁니다.
 
 | 파일 | 확인 내용 |
 |---|---|
@@ -43,6 +43,7 @@ python -m unittest discover -s tests -v
 | `test_mart.py` | MART 행 수, 품질 검사 17개, Unknown 연결, 리포트·대시보드 뷰 값, 같은 입력 재실행 멱등성, SCD2, 소프트 삭제 |
 | `test_rerun.py` | 행 순서 변경·전체 중복에도 결과 불변, (선택) Snowflake 2회 적재 |
 | `test_load.py` | 가짜 연결로 `sql/` 파일 실행 순서, CORE 대사 불일치·품질 검사 실패·매출 0건 처리 |
+| `test_docs.py` | 품질 검사 이름이 `sql/08`과 `src/mart.py`에서 같은지, `docs/data_rules.md`가 17개를 모두 설명하는지 |
 | `test_notebook_sync.py` | `sql/` 파일과 노트북 셀이 글자 그대로 같은지, 매일 배치 노트북이 워크스루 STEP 2~7 셀로만 만들어졌는지, 스케줄 SQL이 그 노트북을 배포하는지 |
 
 `test_load.py`는 호출 순서만 확인하며 Snowflake SQL 실행 증명은 아닙니다.

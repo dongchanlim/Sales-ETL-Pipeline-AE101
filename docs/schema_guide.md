@@ -544,7 +544,7 @@ AUDIT 은 "언제, 무엇이 들어와서, 무엇이 걸러지고, 결과가 믿
 |---|---|---|---|---:|
 | `PIPELINE_RUNS` | 실행 1회 | 시작 시 `RUNNING` 으로 추가 → 끝나면 `SUCCESS`/`FAILED` 와 요약 숫자로 UPDATE | STEP 2(추가), STEP 7-4(확정), 일일 배치 가드, OPS 파이널라이저 | 1 |
 | `DATA_ISSUES` | 이슈 1건 | 어느 파일 몇째 줄이 왜 제거·격리·표시됐는지 (`CORE.ISSUES_WORK` 를 `load_id` 와 함께 복사) | STEP 6 | 1,473 |
-| `DQ_RESULTS` | 실행 × 품질 검사 | 검사 17개의 실패 건수. 같은 `load_id` 로 다시 실행하면 지우고 다시 넣음 | STEP 7-3 | 17 |
+| `DQ_RESULTS` | 실행 × 품질 검사 | 검사 17개의 실패 건수([검사별 기준](data_rules.md#품질-검사-mart-step-7-3)). 같은 `load_id` 로 다시 실행하면 지우고 다시 넣음 | STEP 7-3 | 17 |
 
 `action` 의 뜻: **REMOVED** 는 완전히 같은 중복 행이라 하나만 남기고 제거, **QUARANTINED** 는 키 충돌·필수값 누락·형식 오류·부모 주문 없음이라 적재하지 않음, **FLAGGED** 는 적재는 하되 매출에서 빼거나 Unknown 에 연결했다는 표시입니다.
 

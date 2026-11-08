@@ -1,6 +1,6 @@
 # 처리 규칙과 지표 정의
 
-규칙의 원본은 `sql/03_core_clean.sql`, `sql/04_core_order_quality.sql`이며 `src/core.py`가 같은 규칙을 구현합니다.
+규칙의 원본은 `sql/03_core_clean.sql`, `sql/04_core_order_quality.sql`, `sql/08_mart_dq_checks.sql`이며 `src/core.py`와 `src/mart.py`가 같은 규칙을 구현합니다.
 
 ## 정제 (CORE, STEP 4)
 
@@ -58,6 +58,130 @@
 
 - 차원은 SCD2로 이력을 남기고, Fact는 업무 키로 MERGE(업서트)합니다.
 - 이번 스냅샷에서 사라진 Fact 행은 `is_deleted = TRUE`로 표시합니다. 물리 삭제는 하지 않습니다.
-- 반영 후 품질 검사 17개를 실행하고, 하나라도 실패하면 실행 상태를 `FAILED`로 남깁니다.
+- 반영 후 품질 검사 17개를 실행하고, 하나라도 실패하면 실행 상태를 `FAILED`로 남깁니다. 검사별 기준은 아래 [품질 검사](#품질-검사-mart-step-7-3)를 보세요.
 
 참고: [Snowflake MERGE](https://docs.snowflake.com/en/sql-reference/sql/merge)
+
+## 품질 검사 (MART, STEP 7-3)
+
+MART 반영이 끝나면 17개 검사를 실행해 결과를 `AUDIT.DQ_RESULTS`에 저장합니다. 원본은 `sql/08_mart_dq_checks.sql`(노트북 셀 `step7_3_dq`)이고, `src/mart.py`의 `dq_checks()`가 같은 이름·같은 기준으로 로컬에서 계산합니다.
+Snowflake는 PK/FK를 선언만 하고 강제하지 않으므로, 키 유일성·참조 무결성·금액 대사를 이 검사로 직접 확인합니다.
+
+### 저장 형태와 판정
+
+| 항목 | 내용 |
+|---|---|
+| 저장 위치 | `AUDIT.DQ_RESULTS (load_id, check_name, failures)`. 실행 1회당 17행 |
+| 다시 실행할 때 | 같은 `load_id`의 결과를 지우고 다시 넣으므로 중복되지 않습니다 |
+| `failures` | 기준을 어긴 건수. **0이어야 통과**입니다. 세는 단위는 검사마다 다릅니다 (아래 표의 "센다") |
+| 판정 (STEP 7-4) | 17개의 `failures` 합이 0이면 `AUDIT.PIPELINE_RUNS.status = SUCCESS`, 아니면 `FAILED`이고 `message`에 `DQ failed: <실패한 검사 이름>`을 남깁니다 |
+| 실패해도 | MART는 이미 바뀐 상태이며 자동으로 되돌리지 않습니다. 매일 배치에서는 `daily_gate` 셀이 오류를 내 태스크도 실패로 표시됩니다 |
+| 조회 | `MART.V_DQ_RESULTS`(검사별), `MART.V_RUN_HISTORY`(`failed_checks` / `total_checks`), Streamlit "데이터 운영" 탭 |
+
+**Unknown(-1) 멤버와의 관계.** 모든 차원에 `-1` 행이 있으므로, 고객·상품·날짜를 찾지 못해 `-1`로 연결된 Fact 행은 참조 무결성 검사(5~9번 그룹)를 통과합니다. 참조 오류 자체는 STEP 4에서 FLAGGED 이슈로 기록되고, 그런 행이 매출에 들어갔는지는 17번 `revenue_requires_known_keys`가 따로 확인합니다.
+
+### 검사 17개
+
+| # | check_name | 대상 | 실패 조건 | 센다 | 왜 필요한가 |
+|---:|---|---|---|---|---|
+| 1 | `dim_customer_one_current_version` | DIM_CUSTOMER | `is_current = TRUE` 버전이 정확히 1개가 아닌 고객 | 고객 ID 수 | 현재 버전이 0개면 As-Is 지역 매출에서 빠지고, 2개 이상이면 중복 집계됩니다. SCD2 UPDATE·INSERT 중 하나만 반영된 경우에 걸립니다 |
+| 2 | `dim_customer_key_unique` | DIM_CUSTOMER | 같은 `customer_key`가 2행 이상 | 중복된 키 수 | 대리키가 겹치면 Fact가 한 고객에 연결돼도 조인에서 행이 늘어 매출이 부풀어 오릅니다 |
+| 3 | `dim_customer_valid_range` | DIM_CUSTOMER | `valid_to`가 있는데 `valid_from`보다 늦지 않음 | 행 수 | 유효 기간이 비거나 뒤집히면 point-in-time 조인이 그 버전을 찾지 못해 고객이 Unknown으로 연결됩니다. 같은 `run_ts`로 만든 버전을 바로 닫은 경우(같은 실행을 바뀐 입력으로 다시 돌림) 등에 걸립니다 |
+| 4 | `dim_product_one_current_version` | DIM_PRODUCT | `is_current = TRUE` 버전이 정확히 1개가 아닌 상품 | 상품 ID 수 | 1번과 같은 이유 (상품) |
+| 5 | `dim_product_key_unique` | DIM_PRODUCT | 같은 `product_key`가 2행 이상 | 중복된 키 수 | 2번과 같은 이유 (상품) |
+| 6 | `fact_sales_line_key_unique` | FACT_SALES_LINE | 같은 `order_item_id`가 2행 이상 | 중복된 키 수 | 그레인(주문 상세 1줄 = 1행)이 깨지면 매출·수량이 이중 집계됩니다. MERGE 조건이 잘못됐을 때 걸립니다 |
+| 7 | `fact_sales_line_customer_fk` | FACT_SALES_LINE → DIM_CUSTOMER | `customer_key`가 DIM_CUSTOMER에 없음 | Fact 행 수 | 내부 조인하는 리포트 뷰에서 그 행이 조용히 사라집니다 |
+| 8 | `fact_sales_line_product_fk` | FACT_SALES_LINE → DIM_PRODUCT | `product_key`가 DIM_PRODUCT에 없음 | Fact 행 수 | 7번과 같은 이유 (상품별 매출) |
+| 9 | `fact_sales_line_date_fk` | FACT_SALES_LINE → DIM_DATE | `order_date_key`가 DIM_DATE에 없음 | Fact 행 수 | 일별·월별 매출에서 빠집니다 |
+| 10 | `fact_sales_line_status_fk` | FACT_SALES_LINE → DIM_ORDER_STATUS | `order_status_key`가 DIM_ORDER_STATUS에 없음 | Fact 행 수 | 상태별 분석에서 빠집니다 |
+| 11 | `fact_sales_line_amount_calc` | FACT_SALES_LINE | 수량 ≤ 0, 단가 < 0, 또는 `line_amount ≠ quantity × unit_price` | Fact 행 수 | 매출의 최소 단위인 라인 금액이 계산식과 다르면 그 위의 모든 합계가 틀립니다 |
+| 12 | `fact_payment_key_unique` | FACT_PAYMENT | 같은 `payment_id`가 2행 이상 | 중복된 키 수 | 결제 시도 수·성공률이 부풀어 오릅니다 |
+| 13 | `fact_payment_status_fk` | FACT_PAYMENT → DIM_PAYMENT_STATUS | `payment_status_key`가 DIM_PAYMENT_STATUS에 없음 | Fact 행 수 | 결제 상태별 집계에서 빠집니다 |
+| 14 | `fact_order_lifecycle_key_unique` | FACT_ORDER_LIFECYCLE | 같은 `order_id`가 2행 이상 | 중복된 키 수 | 주문 수와 주문 금액(헤더 금액은 이 Fact에만 있음)이 이중 집계됩니다 |
+| 15 | `revenue_order_reconciliation` | FACT_ORDER_LIFECYCLE (매출 인정·삭제 안 된 주문) | 주문 금액 ≠ 상세 합계, 주문 금액 ≠ 성공 결제 금액, 또는 성공 결제 ≠ 1건 | 주문 수 | STEP 5의 매출 인정 규칙이 MART까지 그대로 지켜졌는지 다시 확인합니다. MART를 직접 고쳤거나 MERGE가 일부 컬럼만 갱신했을 때 걸립니다 |
+| 16 | `revenue_line_vs_order` | FACT_ORDER_LIFECYCLE ↔ FACT_SALES_LINE | 매출 인정 주문의 주문 금액 ≠ 삭제 안 된 상세 Fact의 `line_amount` 합, 또는 상세가 하나도 없음 | 주문 수 | 주문 그레인과 라인 그레인의 매출 합계가 같아야 어느 Fact로 집계해도 숫자가 같습니다. Fact 셀 일부만 다시 실행해 두 Fact가 서로 다른 실행을 반영하고 있을 때 걸립니다 |
+| 17 | `revenue_requires_known_keys` | FACT_SALES_LINE (매출 인정·삭제 안 된 행) | 고객·상품·주문일 키 중 하나라도 `-1` | Fact 행 수 | 매출은 누구에게 무엇을 언제 팔았는지 알 때만 인정합니다. 참조 오류 주문은 STEP 5에서 이미 빠지므로, 여기서 걸리면 point-in-time 조인이 버전을 찾지 못했거나 주문일이 `DIM_DATE` 범위(2030-12-31)를 넘은 경우입니다 |
+
+| 그룹 | 검사 | 확인하는 것 |
+|---|---|---|
+| 차원 무결성 | 1 ~ 5 | SCD2 현재 버전 1개, 대리키 유일, 유효 기간 순서 |
+| Fact 키 유일성 | 6, 12, 14 | 각 Fact의 그레인 |
+| 참조 무결성 | 7 ~ 10, 13 | Fact의 대리키가 차원에 있음 (선언만 된 FK를 직접 확인) |
+| 금액 계산 | 11 | 라인 금액 계산식 |
+| 매출 대사 | 15 ~ 17 | 매출 인정 주문의 금액이 주문·상세·결제 사이에서 맞고, 알 수 있는 키에만 매출이 있음 |
+
+**현재 검사하지 않는 것.** `DIM_PRODUCT`의 유효 기간 순서, `FACT_PAYMENT`의 고객·결제일 키, `FACT_ORDER_LIFECYCLE`의 고객·날짜·상태 키는 검사 대상이 아닙니다. 이 키들은 `FACT_SALES_LINE`과 같은 방식으로 연결되므로 함께 깨질 가능성이 높지만, 엄격히 보려면 아래 "검사 추가 방법"으로 늘리세요.
+
+### 결과 확인과 원인 찾기
+
+실행별 결과는 다음처럼 봅니다.
+
+```sql
+-- 최근 실행의 검사 결과 (실패한 것부터)
+SELECT check_name, failures
+FROM MART.V_DQ_RESULTS
+WHERE load_id = (SELECT load_id FROM MART.V_LATEST_RUN)
+ORDER BY failures DESC, check_name;
+
+-- 실패가 있었던 실행만
+SELECT r.started_at, r.status, d.check_name, d.failures
+FROM MART.V_DQ_RESULTS d JOIN MART.V_RUN_HISTORY r ON r.load_id = d.load_id
+WHERE d.failures > 0
+ORDER BY r.started_at DESC, d.check_name;
+```
+
+`failures`가 0이 아니면 아래 쿼리로 해당 행을 찾습니다. 검사 SQL의 `COUNT(*)`를 행 조회로 바꾼 것입니다.
+원인 하나가 여러 검사를 함께 실패시킬 수 있습니다. 예를 들어 상세 Fact 행이 중복되면 6번과 16번이, 라인 금액이 틀리면 11번과 16번이 함께 실패합니다. 번호가 작은 검사부터 보세요.
+
+```sql
+-- 1, 4. 현재 버전이 1개가 아닌 고객 (상품은 DIM_PRODUCT, product_id 로 바꿈)
+SELECT customer_id, COUNT_IF(is_current) AS current_versions, COUNT(*) AS versions
+FROM MART.DIM_CUSTOMER GROUP BY customer_id HAVING COUNT_IF(is_current) <> 1;
+
+-- 2, 5, 6, 12, 14. 키 중복 (테이블·키 컬럼만 바꿈)
+SELECT customer_key, COUNT(*) AS cnt FROM MART.DIM_CUSTOMER GROUP BY customer_key HAVING COUNT(*) > 1;
+
+-- 3. 유효 기간이 뒤집힌 버전
+SELECT * FROM MART.DIM_CUSTOMER WHERE valid_to IS NOT NULL AND valid_to <= valid_from;
+
+-- 7 ~ 10, 13. 차원에 없는 키 (차원·키 컬럼만 바꿈)
+SELECT f.* FROM MART.FACT_SALES_LINE f
+LEFT JOIN MART.DIM_CUSTOMER c ON f.customer_key = c.customer_key
+WHERE c.customer_key IS NULL;
+
+-- 11. 라인 금액 계산 오류
+SELECT order_item_id, quantity, unit_price, line_amount, quantity * unit_price AS expected
+FROM MART.FACT_SALES_LINE
+WHERE quantity <= 0 OR unit_price < 0 OR line_amount <> quantity * unit_price;
+
+-- 15. 매출 인정 주문의 금액 불일치
+SELECT order_id, order_amount, line_amount_total, success_payment_amount, success_payment_count
+FROM MART.FACT_ORDER_LIFECYCLE
+WHERE is_revenue_eligible AND NOT is_deleted
+  AND (order_amount <> line_amount_total OR order_amount <> success_payment_amount OR success_payment_count <> 1);
+
+-- 16. 주문 금액과 상세 Fact 합계가 다른 매출 주문
+SELECT o.order_id, o.order_amount, l.amt AS line_amount_sum
+FROM MART.FACT_ORDER_LIFECYCLE o
+LEFT JOIN (SELECT order_id, SUM(line_amount) AS amt FROM MART.FACT_SALES_LINE
+           WHERE NOT is_deleted GROUP BY order_id) l ON o.order_id = l.order_id
+WHERE o.is_revenue_eligible AND NOT o.is_deleted AND (l.amt IS NULL OR l.amt <> o.order_amount);
+
+-- 17. Unknown 키에 들어간 매출
+SELECT order_item_id, order_id, customer_key, product_key, order_date_key, order_date
+FROM MART.FACT_SALES_LINE
+WHERE is_revenue_eligible AND NOT is_deleted
+  AND (customer_key = -1 OR product_key = -1 OR order_date_key = -1);
+```
+
+실패 원인을 고친 뒤에는 STEP 7(06)부터 다시 실행합니다. 이미 반영된 MART를 되돌려야 하면 [실행 순서와 복구](execution_flow.md#오류와-복구)의 Time Travel 방법을 씁니다.
+
+### 검사 추가 방법
+
+검사 이름과 기준은 SQL과 Python 두 곳에서 같아야 합니다. 하나를 추가하려면 다음을 함께 바꿉니다.
+
+1. 워크스루 노트북 `step7_3_dq` 셀과 `sql/08_mart_dq_checks.sql`에 `UNION ALL SELECT '<check_name>', COUNT(*) ...`을 추가합니다. 두 파일은 `tests/test_notebook_sync.py`가 같은지 검사합니다.
+2. `src/mart.py`의 `dq_checks()`에 같은 이름·같은 기준을 추가합니다.
+3. `python scripts/build_daily_notebook.py`로 매일 배치 노트북을 다시 만듭니다.
+4. 이 문서의 표에 한 줄을 추가하고, "17개"라고 적힌 문서와 테스트(`tests/test_mart.py`, `tests/test_docs.py`)의 개수를 고칩니다.
+5. `python -m unittest discover -s tests`로 확인합니다. `tests/test_docs.py`는 SQL과 Python의 검사 이름이 같은지, 이 문서에 모든 검사가 있는지 확인합니다.
