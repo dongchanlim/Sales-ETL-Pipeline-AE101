@@ -32,7 +32,7 @@
 | 결제의 주문이 없음 | FLAGGED | `Parent order not found: loaded with customer_key = -1` | 적재. `has_valid_order = FALSE`, MART에서 `customer_key = -1` | 해당 없음 (주문이 CORE에 없음) | 108 |
 | 주문 상세의 주문이 없음 | **QUARANTINED** | `Parent order not found: quarantined` | **적재 안 함**. `AUDIT.DATA_ISSUES`에만 남음 | 해당 없음 (주문이 CORE에 없음) | 197 |
 
-건수는 기본 데이터(`data/raw`)를 처음 실행한 결과이며, 위 세 줄의 합이 FLAGGED 286건, 마지막 줄이 QUARANTINED 197건입니다. 결제와 주문 상세의 `error_detail`은 둘 다 `Parent order not found`로 시작하지만 `action`이 다르니 혼동하지 마세요.
+건수는 정답표 데이터(`generate_data.py --answer-key`)를 처음 실행한 결과이며, 위 세 줄의 합이 FLAGGED 286건, 마지막 줄이 QUARANTINED 197건입니다. 결제와 주문 상세의 `error_detail`은 둘 다 `Parent order not found`로 시작하지만 `action`이 다르니 혼동하지 마세요.
 
 **판단 기준: 그 행이 자기 정보만으로 Fact 행이 될 수 있는가.**
 
@@ -74,6 +74,18 @@ WHERE i.load_id = (SELECT load_id FROM MART.V_LATEST_RUN)
 GROUP BY i.source_file, cause
 ORDER BY i.source_file, cause;
 ```
+
+### 현재 규칙으로 잡지 못하는 오류
+
+위 규칙은 형식, 필수값, 키, 참조, 금액 대사를 확인합니다. 값의 의미는 확인하지 않습니다. 그래서 다음 오류는 이슈 없이 MART까지 들어갑니다.
+
+- 지역 표기 변형(`서울특별시`, `Seoul`)과 이메일 형식 오류
+- 같은 사람의 재가입 계정
+- 주문일보다 이른 결제, 추출일 이후의 주문일
+- 단가 0원이나 10배·100배 입력 실수 (금액이 서로 맞는 경우)
+- 취소 주문에 남은 성공 결제
+
+`scripts/generate_data.py`의 기본(무작위) 모드는 이런 오류를 일부러 섞고, `answer_key.json`에 `undetected`로 표시합니다. 영향과 잡는 방법은 [데이터 생성 2-3](data_generation.md#2-3-무작위-모드에만--현재-규칙으로-잡지-못하는-오류-미탐지)에 있습니다. 규칙을 추가할 때는 `sql/03`·`04`, 노트북 셀, `src/core.py`를 함께 바꾸고, 생성기의 해당 문제 `kind`를 `detected`로 옮기세요.
 
 ## 매출 인식 (CORE, STEP 5)
 

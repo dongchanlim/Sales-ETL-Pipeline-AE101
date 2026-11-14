@@ -3,9 +3,8 @@ import os
 import random
 import unittest
 
-from src.config import ROOT
 from src.pipeline import prepare
-from tests.helpers import first_run, copy_raw
+from tests.helpers import RAW, first_run, copy_raw
 from tests.test_mart import business_view
 
 
@@ -34,7 +33,7 @@ class SnowflakeRerunTests(unittest.TestCase):
         from src.load import load
         if not DATABASE.upper().endswith("_TEST"):
             self.fail("Use an initialized, disposable database ending in _TEST (python -m src.pipeline --setup)")
-        raw = extract(ROOT / "data/raw")
+        raw = extract(RAW)
         summary = build_core(raw)["summary"]
         conn = connect()
         query = ("SELECT f.order_item_id, c.customer_id, p.product_id, f.line_amount, f.is_revenue_eligible, f.is_deleted "

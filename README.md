@@ -21,10 +21,11 @@ python -m src.pipeline --dry-run
 python -m unittest discover -s tests -v
 ```
 
-예제 데이터는 2025-01 ~ 2026-10 기간의 원본 129,618행(고객 2,028 · 상품 151 · 주문 30,081 · 주문 상세 66,262 · 결제 31,096)입니다.
+저장소에 들어 있는 예제 데이터(정답표 데이터)는 2025-01 ~ 2026-10 기간의 원본 129,618행(고객 2,028 · 상품 151 · 주문 30,081 · 주문 상세 66,262 · 결제 31,096)입니다.
 행의 약 2~3%에 완전 중복, 키 충돌, 필수값 누락, 참조 오류, 중복 성공 결제, 금액 불일치가 섞여 있습니다.
 매출로 인정되는 주문은 **27,055건**, 총매출은 **2,198,198,700원**입니다. 제외된 주문도 사유와 함께 MART에 적재됩니다.
 각 파일 맨 앞의 수업용 사례 40행(O001~O010 등)에서는 O001·O002만 매출로 인정됩니다.
+`python scripts/generate_data.py`를 실행하면 같은 분포로 만든 새 무작위 데이터가 `data/raw`에 생깁니다. 현실적인 오류와 현재 규칙으로 잡지 못하는 오류도 섞여 들어가고, 정답은 `answer_key.json`에 기록됩니다. 위 숫자는 정답표 데이터 기준입니다. 정답표 데이터로 되돌리려면 `--answer-key`를 붙여 실행합니다.
 데이터 구성과 정답표는 [데이터 생성](docs/data_generation.md)을 참고하세요.
 
 `--dry-run`은 `outputs/<load_id>.json` 보고서를 씁니다. `--state outputs/mart_state.json`을 함께 주면 MART 상태를 저장하고 다음 실행에서 이어받아, SCD2 이력과 소프트 삭제를 로컬에서도 확인할 수 있습니다. `outputs/`는 Git에서 제외됩니다.
@@ -33,8 +34,8 @@ python -m unittest discover -s tests -v
 
 | 경로 | 역할 |
 |---|---|
-| `data/raw/*.csv` | 고객·상품·주문·주문 상세·결제 시도 합성 파일 |
-| `scripts/generate_data.py` | 합성 데이터 생성기 (seed 고정, 재현 가능) |
+| `data/raw/*.csv`, `answer_key.json` | 고객·상품·주문·주문 상세·결제 시도 합성 파일과 심은 문제의 정답 |
+| `scripts/generate_data.py` | 합성 데이터 생성기 (기본: 실행마다 새 무작위 데이터, `--seed` 재현, `--answer-key` 정답표 데이터) |
 | `notebooks/ae101_enterprise_walkthrough.ipynb` | 전체 워크스루 (STEP 0~12). **로직의 기준** |
 | `notebooks/ae101_mart_etl.ipynb` | MART만 생성·반영하는 노트북 (CORE 이후) |
 | `notebooks/ae101_daily_batch.ipynb` | 매일 배치 노트북 (워크스루 STEP 2~7 셀 + 가드·게이트). `scripts/build_daily_notebook.py` 로 생성 |
@@ -47,7 +48,7 @@ python -m unittest discover -s tests -v
 | `src/load.py` | Snowflake 적재: RAW INSERT 후 `sql/` 파일 순서대로 실행, 결과 대사 |
 | `src/pipeline.py` | CLI (`--dry-run`, `--setup`, `--load`) |
 | `streamlit/` | 매출·품질 대시보드 (`streamlit_app.py`, 배포 설정 `snowflake.yml`, `pyproject.toml`) |
-| `tests/` | 정답값·SCD2·멱등성·노트북 동기화 테스트, 선택적 Snowflake 통합 테스트 |
+| `tests/` | 정답값·SCD2·멱등성·노트북 동기화·데이터 생성기 테스트, 선택적 Snowflake 통합 테스트. 정답표 데이터를 임시 폴더에 만들어 쓰므로 `data/raw`와 무관 |
 | `docs/` | ERD·업무 규칙·실행 순서·검증·리뷰 문서 |
 
 ## Snowflake 에서 실행 — 노트북
