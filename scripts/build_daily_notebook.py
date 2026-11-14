@@ -2,6 +2,7 @@
 
 파이프라인 셀(STEP 2 ~ STEP 7)은 워크스루 노트북의 셀을 글자 그대로 복사합니다.
 매일 실행에 필요 없는 STEP 0(점검)·1(DDL)·8(리포트 뷰)·9(보안)·10(확인)·11(SCD2 체험)·12(정리)는 넣지 않습니다.
+데이터 선택 셀만 다릅니다: 워크스루의 step3_0_source('git') 대신 daily_source(DAILY_LANDING_SOURCE)를 넣습니다.
 워크스루의 파이프라인 셀을 고친 뒤에는 이 스크립트를 다시 실행하세요. tests/test_notebook_sync.py 가 두 노트북이 같은지 검사합니다.
 
     python scripts/build_daily_notebook.py
@@ -13,9 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "notebooks" / "ae101_enterprise_walkthrough.ipynb"
 TARGET = ROOT / "notebooks" / "ae101_daily_batch.ipynb"
 
-# 워크스루에서 그대로 가져오는 셀 (이 순서대로 실행)
+# 매일 배치가 적재할 데이터: 'random' = 매일 새 무작위 데이터 / 'git' = Git 저장소 data/raw (매일 같은 데이터)
+DAILY_LANDING_SOURCE = "random"
+
+# 워크스루에서 그대로 가져오는 셀 (이 순서대로 실행). step2 다음에 daily_source 셀이 들어갑니다.
 PIPELINE_CELLS = (
-    "step2", "step3", "step4", "step5", "step6",
+    "step2", "step3_0_landing", "step3_0_generate", "step3", "step4", "step5", "step6",
     "step7_0_ctx", "step7_0_guard",
     "step7_1a_dim_customer", "step7_1b_dim_product",
     "step7_2a_fact_sales_line", "step7_2b_fact_payment", "step7_2c_fact_order_lifecycle",
@@ -29,15 +33,24 @@ INTRO = """# AE101 매일 배치 노트북 (스케줄 실행용)
 
 | 넣은 단계 | 넣지 않은 단계 (한 번만 또는 수동) |
 |---|---|
-| Git FETCH → STEP 2 실행 시작 → STEP 3 RAW 새 배치 → STEP 4~5 CORE → STEP 6 감사 기록 → STEP 7 MART 반영·품질 검사·상태 확정 | STEP 1 DDL, STEP 8 리포트 뷰, STEP 9 보안, STEP 10 확인 쿼리, STEP 11 SCD2 체험, STEP 12 정리 |
+| Git FETCH → STEP 2 실행 시작 → STEP 3 원본 준비(스테이지)·RAW 새 배치 → STEP 4~5 CORE → STEP 6 감사 기록 → STEP 7 MART 반영·품질 검사·상태 확정 | STEP 1 DDL, STEP 8 리포트 뷰, STEP 9 보안, STEP 10 확인 쿼리, STEP 11 SCD2 체험, STEP 12 정리 |
 
-**사전 조건** : 워크스루 STEP 1(DDL)과 STEP 8(리포트 뷰)을 한 번 실행했어야 합니다.
+**사전 조건** : 워크스루 STEP 1(DDL)과 STEP 8(리포트 뷰)을 한 번 실행했어야 합니다. STEP 1 에는 스테이지 `RAW.LANDING` 과 생성 프로시저 `RAW.GENERATE_LANDING_FILES` 가 들어 있습니다.
+
+**데이터** : 기본은 **매일 새 무작위 데이터**입니다 (`daily_source` 셀의 `landing_source = '{source}'`). 매일 같은 ID 의 고객·주문 내용이 통째로 바뀌므로 SCD2 버전과 Fact 변경이 많이 생깁니다. 배치마다 심은 오류의 정답은 `@RAW.LANDING/batches/<load_id>/answer_key.json` 에 남습니다. Git 저장소의 `data/raw` 를 매일 다시 적재하려면 `'git'` 으로 바꾸세요.
 
 **실패 처리** : 정상 주문이 0건이면 `daily_guard` 가, 품질 검사가 실패하면 `daily_gate` 가 오류를 내 실행을 실패로 끝냅니다. 중간 셀에서 오류가 나 `RUNNING` 으로 남은 실행은 파이널라이저 태스크가 `FAILED` 로 바꿉니다.
 
 **주의** : 스케줄이 켜져 있는 동안 워크스루 노트북을 직접 실행하면 두 실행이 같은 `CORE.RUN_CTX` 를 덮어씁니다. 실습 전에 `ALTER TASK AE101_SALES_ENT.OPS.T_DAILY_BATCH SUSPEND;` 로 멈추세요."""
 
 PREPARE_MD = "## 0. 준비 : DB 지정, Git 저장소 최신화"
+
+SOURCE_MD = "### 3-0. 이번 배치에 쓸 데이터 (매일 배치 전용 셀)"
+SOURCE_SQL = """-- 매일 배치가 적재할 데이터 (워크스루의 step3_0_source 셀 대신 이 셀을 씁니다)
+--   'random' : 생성기가 매일 새 무작위 데이터를 만들어 적재합니다
+--   'git'    : Git 저장소 main 의 data/raw 를 그대로 적재합니다 (매일 같은 데이터)
+-- 바꾸려면 scripts/build_daily_notebook.py 의 DAILY_LANDING_SOURCE 를 고치고 노트북을 다시 만드세요.
+SET (landing_source, landing_seed) = ('{source}', 0);"""
 PREPARE_SQL = """-- 태스크는 노트북 소유 역할로 실행됩니다. USE ROLE 로 역할을 바꾸지 않습니다.
 USE DATABASE AE101_SALES_ENT;
 ALTER GIT REPOSITORY AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE FETCH;"""
@@ -78,7 +91,8 @@ print(f"[{load_id}] SUCCESS - 매출 인식 주문 {row['REVENUE_ORDERS']:,}건,
 
 HEADINGS = {
     "step2": "## STEP 2. 실행 시작 : load_id / run_ts 발급, RUNNING 기록",
-    "step3": "## STEP 3. RAW 적재 : Git 저장소 CSV 를 새 배치로 추가",
+    "step3_0_landing": "#### 3-0a / 3-0b. 원본 파일을 스테이지 @RAW.LANDING/current/ 에 준비",
+    "step3": "### 3-1. RAW 적재 : 스테이지의 CSV 를 새 배치로 추가",
     "step4": "## STEP 4. CORE 정제",
     "step5": "## STEP 5. CORE 주문 품질 판정",
     "step6": "## STEP 6. 감사 기록",
@@ -110,11 +124,15 @@ def code(name, language, text):
 def build():
     source = json.loads(SOURCE.read_text(encoding="utf-8"))
     cells = {c["metadata"]["name"]: c for c in source["cells"] if c["cell_type"] == "code"}
-    out = [markdown(INTRO), markdown(PREPARE_MD), code("daily_prepare", "sql", PREPARE_SQL)]
+    out = [markdown(INTRO.replace("{source}", DAILY_LANDING_SOURCE)), markdown(PREPARE_MD),
+           code("daily_prepare", "sql", PREPARE_SQL)]
     for name in PIPELINE_CELLS:
         if name in HEADINGS:
             out.append(markdown(HEADINGS[name]))
         out.append(json.loads(json.dumps(cells[name])))          # 원본 셀 그대로 복사
+        if name == "step2":
+            out += [markdown("## STEP 3. RAW 적재\n\n" + SOURCE_MD),
+                    code("daily_source", "sql", SOURCE_SQL.replace("{source}", DAILY_LANDING_SOURCE))]
         if name == "step7_0_guard":
             out += [markdown(GUARD_MD), code("daily_guard", "python", GUARD_PY)]
     out += [markdown(GATE_MD), code("daily_gate", "python", GATE_PY)]

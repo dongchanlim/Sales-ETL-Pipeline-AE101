@@ -96,6 +96,7 @@ flowchart LR
 
 ## 6. 범위와 한계
 
-- 지금 입력은 Git의 고정 CSV라 매일 같은 스냅샷을 다시 읽습니다. 결과는 매일 같고(멱등), RAW에 같은 데이터의 배치가 하루 약 13만 행씩 쌓입니다. 실제 운영에서는 STEP 3의 경로를 매일 새 파일이 들어오는 스테이지로 바꾸고, 오래된 RAW 배치의 보관 기간을 정하세요.
+- 매일 배치는 기본으로 Snowflake 안에서 새 무작위 데이터를 만들어 스테이지 `@RAW.LANDING/current/`에 올린 뒤 적재합니다(`daily_source` 셀의 `landing_source = 'random'`). 매번 완전히 새 데이터셋이므로 같은 ID의 고객·주문 내용이 통째로 바뀌어 SCD2 버전과 Fact 변경이 많이 생기고, RAW에는 하루 약 13만 행씩 쌓입니다. 오래된 RAW 배치와 `@RAW.LANDING/batches/`의 보관 기간을 정하세요.
+- 배치마다 심은 오류의 정답은 `@RAW.LANDING/batches/<load_id>/answer_key.json`에 남습니다. 매일 같은 Git 데이터를 다시 적재하려면 `scripts/build_daily_notebook.py`의 `DAILY_LANDING_SOURCE`를 `'git'`으로 바꾸고 노트북을 다시 만들어 배포하세요.
 - 노트북 실행에서 오류 셀 이후가 멈추는 동작은 Snowflake의 노트북 실행 방식을 따릅니다. 이 경우에도 파이널라이저가 기록을 `FAILED` 로 닫습니다.
 - 이 저장소에서는 파일 구조·셀 순서·가드·게이트·파이널라이저·알림 조건을 로컬에서 검사했습니다. 실제 Snowflake에서 태스크를 실행해 본 것은 아닙니다. [검증 결과](validation_results.md)를 보세요.

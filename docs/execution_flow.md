@@ -4,10 +4,10 @@
 
 | 방법 | 어디서 | RAW 적재 | 이후 단계 |
 |---|---|---|---|
-| Snowflake Notebook | `notebooks/ae101_enterprise_walkthrough.ipynb` | Git 저장소 스테이지 (`sql/02`) | 셀을 위에서 아래로 실행 |
+| Snowflake Notebook | `notebooks/ae101_enterprise_walkthrough.ipynb` | Git `data/raw` → 스테이지 `@RAW.LANDING/current/` → RAW (`sql/02`). `landing_source = 'random'` 이면 생성기가 스테이지 파일을 새 데이터로 바꿈 | 셀을 위에서 아래로 실행 |
 | Python → Snowflake | `python -m src.pipeline --load` | 로컬 CSV를 같은 형태로 INSERT | `sql/03 ~ 10` 파일을 순서대로 실행 |
 | Python 로컬 | `python -m src.pipeline --dry-run` | 메모리 | `src/core.py`, `src/mart.py`, `src/reports.py` 가 같은 규칙을 계산 |
-| 매일 자동 실행 | Task Graph → `notebooks/ae101_daily_batch.ipynb` | Git 저장소 스테이지 (STEP 3 셀) | STEP 2~7 셀만 실행 (STEP 1·8·9는 한 번만). [스케줄링](scheduling.md) |
+| 매일 자동 실행 | Task Graph → `notebooks/ae101_daily_batch.ipynb` | 생성기 → 스테이지 `@RAW.LANDING/current/` → RAW (기본: 매일 새 무작위 데이터) | STEP 2~7 셀만 실행 (STEP 1·8·9는 한 번만). [스케줄링](scheduling.md) |
 
 MART만 다시 반영하고 싶으면 `notebooks/ae101_mart_etl.ipynb`를 사용합니다 (CORE까지 끝난 뒤).
 
@@ -39,7 +39,7 @@ flowchart TD
 |---|---|---|---|
 | `00_setup.sql` | step1 | `--setup` | DDL (한 번) |
 | `01_start_run.sql` | step2 | `load.load()` 시작 | `CORE.RUN_CTX` 생성, 세션 변수 `$load_id`·`$run_ts` |
-| `02_load_raw_from_git.sql` | step0_fetch, step3 | `load.insert_raw()` | RAW에 배치 추가 |
+| `02_load_raw_from_git.sql` | step0_fetch, step3_0_landing, step3 | `load.insert_raw()` | Git `data/raw` 를 스테이지로 복사한 뒤 RAW에 배치 추가. 노트북은 그 사이에 `step3_0_source`(데이터 선택)·`step3_0_generate`(생성기 호출, Python) 셀이 더 있음 |
 | `03_core_clean.sql` | step4 | `core.clean()` | 중복 제거, 키 충돌·형식 오류 격리, 참조 오류 플래그 |
 | `04_core_order_quality.sql` | step5 | `core.order_quality()` 등 | 매출 인식 판정, Fact 준비, 요약 |
 | `05_audit_issues.sql` | step6 | `report()` 의 `issues` | 이슈를 AUDIT 로 |

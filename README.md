@@ -54,7 +54,7 @@ python -m unittest discover -s tests -v
 ## Snowflake 에서 실행 — 노트북
 
 1. [Snowflake Git 저장소](https://docs.snowflake.com/en/developer-guide/git/git-overview)로 이 저장소를 연결합니다. 노트북은 `AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE` 이라는 저장소 객체 이름을 가정합니다.
-   STEP 3은 `@AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/main/data/raw/` 에서 CSV를 읽습니다. 다른 브랜치를 쓰려면 그 경로의 `main`만 바꾸고, 먼저 `ALTER GIT REPOSITORY ... FETCH;`(STEP 0)로 최신 상태를 가져옵니다.
+   STEP 3은 `@AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/main/data/raw/` 의 CSV를 스테이지 `@RAW.LANDING/current/` 로 복사한 뒤 읽습니다. STEP 3-0의 `landing_source`를 `'random'`으로 바꾸면 Snowflake 안에서 생성기 프로시저(`RAW.GENERATE_LANDING_FILES`)가 새 무작위 데이터를 만들어 스테이지 파일을 바꿉니다. 매일 배치 노트북은 이것이 기본입니다. 다른 브랜치를 쓰려면 그 경로의 `main`만 바꾸고, 먼저 `ALTER GIT REPOSITORY ... FETCH;`(STEP 0)로 최신 상태를 가져옵니다.
 2. Snowsight → Notebooks → Import .ipynb 로 `notebooks/ae101_enterprise_walkthrough.ipynb`를 가져옵니다.
 3. 노트북 설정에서 Query warehouse를 고릅니다. `AE101_DB`는 데이터베이스 이름이라 `USE WAREHOUSE`에 쓸 수 없습니다.
 4. 셀을 위에서 아래로 실행합니다. STEP 2~8은 세션 변수를 쓰므로 같은 세션에서 이어서 실행합니다.

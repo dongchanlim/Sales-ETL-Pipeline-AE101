@@ -4,6 +4,7 @@
 --
 -- 사전 조건
 --   1) 워크스루 STEP 1(DDL)과 STEP 8(리포트 뷰)을 한 번 실행했다. (매일 다시 실행할 필요 없음: docs/scheduling.md 참고)
+--      STEP 1 에는 스테이지 RAW.LANDING 과 생성 프로시저 RAW.GENERATE_LANDING_FILES 가 있습니다. 매일 배치는 기본으로 이 프로시저로 새 데이터를 만듭니다.
 --   2) Git 저장소 객체 AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE 이 있고, main 브랜치에 notebooks/ae101_daily_batch.ipynb 가 있다.
 --   3) 이 파일을 실행하는 역할이 파이프라인 객체(AE101_SALES_ENT)를 소유한 역할과 같다. 교육용 기본값은 ACCOUNTADMIN 입니다.
 --

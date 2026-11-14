@@ -11,6 +11,9 @@
   python scripts/generate_data.py --answer-key    # 정답표 데이터(seed 101)로 되돌리기
   python scripts/generate_data.py --out /tmp/raw  # 다른 폴더에 생성
 
+Snowflake 안에서는 저장 프로시저 RAW.GENERATE_LANDING_FILES(핸들러 land_to_stage)가 이 파일을 Git 저장소에서 불러와
+파일을 메모리에서 만든 뒤 스테이지 @RAW.LANDING/current/ 에 올립니다. 노트북 STEP 3-0 의 landing_source 로 고릅니다.
+
 docs/data_generation.md 3절, 노트북·sql/ 의 기대값 주석, tests/ 는 --answer-key 데이터 기준입니다.
 무작위 데이터의 정답은 같은 폴더에 쓰이는 answer_key.json 과 `python -m src.pipeline --dry-run` 보고서로 확인합니다.
 
@@ -20,7 +23,7 @@ docs/data_generation.md 3절, 노트북·sql/ 의 기대값 주석, tests/ 는 -
   normal     : 오류처럼 보이지만 규칙이 정상 처리하는 값 (선택값 누락, 앞뒤 공백).
 수업용 사례 40행(O001~O010 등)은 모든 모드에서 각 파일 맨 앞에 그대로 들어갑니다.
 """
-import argparse, calendar, csv, json, math, random
+import argparse, calendar, csv, io, json, math, random
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -216,11 +219,13 @@ POOL_TYPES = (   # 서로 겹치지 않는 완료 주문을 하나씩 쓰는 문
     "zero_unit_price", "unit_price_typo", "cancelled_with_success_payment", "duplicate_customer_account", "padded_values")
 
 
-def write_csv(path, cols, rows):
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=cols, lineterminator="\n")
-        w.writeheader()
-        w.writerows(rows)
+def csv_bytes(cols, rows):
+    """CSV 한 파일의 내용 (UTF-8, 줄바꿈 LF)."""
+    buf = io.StringIO(newline="")
+    w = csv.DictWriter(buf, fieldnames=cols, lineterminator="\n")
+    w.writeheader()
+    w.writerows(rows)
+    return buf.getvalue().encode("utf-8")
 
 
 def round100(x):
@@ -671,8 +676,12 @@ def plant_problems(rnd, base, counts, key, realistic):
 # ---------------------------------------------------------------------------
 # 3. 실행
 # ---------------------------------------------------------------------------
-def generate(out, seed=None, answer_key=False, customers=2000, orders=30000):
-    """데이터셋 하나를 out 폴더에 CSV 5개와 answer_key.json 으로 쓰고, 정답표(dict)를 돌려줍니다."""
+FILE_NAMES = tuple(f"{t}.csv" for t in COLS) + ("answer_key.json",)   # 한 데이터셋 = 이 6개 파일
+LANDING_STAGE = "@AE101_SALES_ENT.RAW.LANDING/current/"              # STEP 3 이 읽는 위치
+
+
+def build_files(seed=None, answer_key=False, customers=2000, orders=30000):
+    """데이터셋 하나를 메모리에서 만듭니다. 반환: ({파일 이름: 내용 bytes}, 정답표 dict)."""
     if answer_key:
         seed, customers, orders = ANSWER_KEY_SEED, 2000, 30000
     elif seed is None:
@@ -686,19 +695,44 @@ def generate(out, seed=None, answer_key=False, customers=2000, orders=30000):
     key = AnswerKey()
     final = plant_problems(rnd, base, counts, key, realistic=not answer_key)
 
-    out = Path(out); out.mkdir(parents=True, exist_ok=True)
-    for t in COLS:
-        write_csv(out / f"{t}.csv", COLS[t], final[t])
     result = key.to_dict({
         "generator": "scripts/generate_data.py", "mode": "answer-key" if answer_key else "random", "seed": seed,
         "period": {"start": START.isoformat(), "end": END.isoformat()},
         "volume": {"customers": customers, "orders_target": orders},
         "row_counts": {t: len(final[t]) for t in COLS}, "teaching_case_rows": sum(map(len, TEACHING_CASES.values())),
     })
-    with open(out / "answer_key.json", "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=1)
-        f.write("\n")
+    files = {f"{t}.csv": csv_bytes(COLS[t], final[t]) for t in COLS}
+    files["answer_key.json"] = (json.dumps(result, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+    return files, result
+
+
+def generate(out, **options):
+    """데이터셋 하나를 out 폴더에 CSV 5개와 answer_key.json 으로 쓰고, 정답표(dict)를 돌려줍니다.
+    options 는 build_files 와 같습니다 (seed, answer_key, customers, orders)."""
+    files, result = build_files(**options)
+    out = Path(out); out.mkdir(parents=True, exist_ok=True)
+    for name, content in files.items():
+        (out / name).write_bytes(content)
     return result
+
+
+def land_to_stage(session, source, seed=None):
+    """Snowflake 저장 프로시저 RAW.GENERATE_LANDING_FILES 의 핸들러 (STEP 1 에서 만들고 STEP 3-0 에서 호출).
+
+    데이터셋을 메모리에서 만들어 LANDING_STAGE(@RAW.LANDING/current/)의 6개 파일을 같은 이름으로 덮어씁니다.
+    파일 시스템을 쓰지 않고 put_stream 으로 올립니다 (저장 프로시저에서는 PUT 을 쓸 수 없음).
+      source : 'random' (새 무작위 데이터) 또는 'answer-key' (정답표 데이터, seed 101)
+      seed   : 'random' 에서 같은 데이터를 다시 만들 때. NULL 또는 0 이면 새로 뽑습니다.
+    """
+    if source not in ("random", "answer-key"):
+        raise ValueError(f"source 는 'random' 또는 'answer-key' 여야 합니다: {source!r}")
+    if source == "answer-key":
+        files, result = build_files(answer_key=True)
+    else:
+        files, result = build_files(seed=int(seed) if seed else None)
+    for name in FILE_NAMES:
+        session.file.put_stream(io.BytesIO(files[name]), LANDING_STAGE + name, auto_compress=False, overwrite=True)
+    return {**summary(result), "stage": LANDING_STAGE, "files": list(FILE_NAMES)}
 
 
 def summary(result):

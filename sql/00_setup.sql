@@ -38,6 +38,23 @@ CREATE OR REPLACE VIEW RAW.V_ORDERS_LATEST      AS SELECT * FROM RAW.ORDERS     
 CREATE OR REPLACE VIEW RAW.V_ORDER_ITEMS_LATEST AS SELECT * FROM RAW.ORDER_ITEMS QUALIFY loaded_at = MAX(loaded_at) OVER ();
 CREATE OR REPLACE VIEW RAW.V_PAYMENTS_LATEST    AS SELECT * FROM RAW.PAYMENTS    QUALIFY loaded_at = MAX(loaded_at) OVER ();
 
+-- 1-1b. 착륙장(landing) : STEP 3 이 읽을 원본 파일을 두는 내부 스테이지와, 새 데이터를 만들어 올리는 프로시저
+--   @RAW.LANDING/current/            이번 배치가 읽을 CSV 5개 + answer_key.json (STEP 3-0 이 매번 채움)
+--   @RAW.LANDING/batches/<load_id>/  배치마다 쓴 answer_key.json 사본 (어떤 데이터를 적재했는지 기록)
+CREATE STAGE IF NOT EXISTS RAW.LANDING
+  COMMENT = 'STEP 3 원본 파일: current/ = 이번 배치, batches/<load_id>/ = 배치별 answer_key.json';
+
+-- 생성기(scripts/generate_data.py)를 Git 저장소에서 불러와 Snowflake 안에서 실행합니다. 파일은 메모리에서 만들어 스테이지에 바로 올립니다.
+-- 생성기를 고친 뒤에는 STEP 0 의 FETCH 다음에 이 문장을 다시 실행하세요.
+CREATE OR REPLACE PROCEDURE RAW.GENERATE_LANDING_FILES(SOURCE VARCHAR, SEED NUMBER)
+  RETURNS VARIANT
+  LANGUAGE PYTHON
+  RUNTIME_VERSION = '3.11'
+  PACKAGES = ('snowflake-snowpark-python')
+  IMPORTS = ('@AE101_DB.GIT_REPOS.SALES_ETL_PIPELINE/branches/main/scripts/generate_data.py')
+  HANDLER = 'generate_data.land_to_stage'
+  COMMENT = 'AE101 합성 데이터를 만들어 @RAW.LANDING/current/ 에 올림. SOURCE = random | answer-key, SEED = 0 이면 새로 뽑음';
+
 -- 1-2. AUDIT
 CREATE TABLE IF NOT EXISTS AUDIT.PIPELINE_RUNS (
   load_id VARCHAR NOT NULL, status VARCHAR NOT NULL, started_at TIMESTAMP_NTZ NOT NULL, finished_at TIMESTAMP_NTZ,

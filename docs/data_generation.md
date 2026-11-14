@@ -11,16 +11,35 @@ python scripts/generate_data.py --answer-key   # 정답표 데이터(seed 101)�
 python -m src.pipeline --dry-run               # 지금 data/raw 의 결과 보고서 (outputs/)
 ```
 
-### Snowflake 노트북 셀에서 실행할 때
+### Snowflake 안에서 새 데이터로 실행하기 (스테이지)
 
-노트북 셀에는 `__file__`이 없고 `sys.argv`에 커널 인자가 들어 있습니다. 생성기는 이 경우 현재 폴더 기준 `data/raw`에 쓰고 `sys.argv`는 읽지 않습니다. 옵션은 리스트로 넘깁니다.
+Snowflake에서는 생성기를 노트북에 붙여 넣어 실행할 필요가 없습니다. STEP 3이 스테이지를 거쳐 적재하므로, 노트북의 `landing_source` 값만 바꾸면 됩니다.
 
-```python
-exec(open("scripts/generate_data.py").read().replace('if __name__ == "__main__":\n    main()', ""))   # 셀에 코드를 붙여 넣었다면 이 줄은 필요 없음
-main(["--seed", "7", "--out", "/tmp/raw"])      # 옵션 없이 main() 이면 새 무작위 데이터를 현재 폴더의 data/raw 에
+```
+STEP 3-0  landing_source 선택     'git' (워크스루 기본) | 'random' (매일 배치 기본) | 'answer-key'
+STEP 3-0a Git data/raw ──COPY FILES──▶ @RAW.LANDING/current/   (항상)
+STEP 3-0b 'random'·'answer-key' 이면 CALL RAW.GENERATE_LANDING_FILES(...) 가 같은 이름의 파일 6개를 덮어씀
+          이번 배치의 answer_key.json 을 @RAW.LANDING/batches/<load_id>/ 에 복사 (어떤 데이터였는지 기록)
+STEP 3-1  @RAW.LANDING/current/*.csv ──INSERT──▶ RAW 새 배치
 ```
 
-노트북이 만든 CSV는 노트북의 로컬 파일 시스템에 생깁니다. STEP 3이 읽는 Git 저장소의 `data/raw`는 바뀌지 않으므로, 이 데이터를 파이프라인에 넣으려면 파일을 따로 올리거나 RAW 테이블에 직접 적재해야 합니다.
+- **생성 프로시저:** `RAW.GENERATE_LANDING_FILES(SOURCE, SEED)`는 STEP 1에서 만듭니다. Git 저장소의 `scripts/generate_data.py`를 `IMPORTS`로 불러와 핸들러 `land_to_stage`를 실행합니다.
+- **파일 경로:** 파일은 메모리에서 만들어 `put_stream`으로 스테이지에 바로 올립니다. 그래서 노트북의 로컬 파일 시스템을 거치지 않습니다.
+- **`SEED` 값:** `0`이면 새로 뽑고, 다른 값이면 그 seed로 같은 데이터를 다시 만듭니다. 노트북에서는 `landing_seed`로 넘깁니다.
+- **생성기를 고쳤을 때:** STEP 0의 FETCH 다음에 STEP 1의 `CREATE OR REPLACE PROCEDURE` 문을 다시 실행하면 확실하게 반영됩니다.
+- **워크시트에서 실행할 때:** `sql/02` 를 실행한 다음 `CALL RAW.GENERATE_LANDING_FILES('random', 0);` 를 실행합니다. 이 CALL은 3-0a의 `COPY FILES` 와 STEP 3-1의 `INSERT` 사이에 있어야 합니다.
+- **정답 확인:** 배치마다 심은 문제의 정답은 `@RAW.LANDING/batches/<load_id>/answer_key.json`에 있습니다.
+
+```sql
+LIST @RAW.LANDING/batches/;                                          -- 배치별 정답표 파일
+CREATE FILE FORMAT IF NOT EXISTS RAW.JSON_FORMAT TYPE = JSON;        -- 스테이지 파일 조회는 이름 있는 파일 포맷이 필요
+SELECT $1:seed, $1:mode, $1:row_counts                               -- 최근 배치의 seed 와 행 수
+FROM @RAW.LANDING/current/answer_key.json (FILE_FORMAT => 'RAW.JSON_FORMAT');
+```
+
+### Python으로 실행할 때 (노트북 셀 포함)
+
+노트북 셀에 생성기 코드를 붙여 넣어 실행해도 동작합니다. 셀에는 `__file__`이 없고 `sys.argv`에 커널 인자가 들어 있으므로, 생성기는 현재 폴더 기준 `data/raw`에 쓰고 `sys.argv`는 읽지 않습니다. 옵션은 `main(["--seed", "7", "--out", "/tmp/raw"])`처럼 리스트로 넘깁니다. 이렇게 만든 파일은 노트북의 로컬 파일 시스템에만 생기고 파이프라인에는 들어가지 않으므로, Snowflake에서는 위의 스테이지 방식을 쓰세요.
 
 ## 0. 생성 모드
 
@@ -47,10 +66,10 @@ seed 1~20으로 확인한 결과는 다음과 같습니다.
 
 무작위 데이터는 문제 종류가 더 많아 매출 인정 주문 비율이 조금 낮습니다. 평균 주문 금액의 + 쪽 차이에는 미탐지 오류인 단가 입력 실수(`unit_price_typo`)의 영향도 들어 있습니다.
 
-**Git `main`의 `data/raw`는 정답표 데이터입니다.** 무작위 데이터를 커밋·푸시하면 Snowflake STEP 3이 그 파일을 읽으므로 다음 차이가 생깁니다.
+**Git `main`의 `data/raw`는 정답표 데이터입니다.** 워크스루 노트북은 기본(`landing_source = 'git'`)으로 이 파일을 적재합니다. 무작위 데이터를 적재하면(`'random'`, 또는 무작위 CSV를 커밋·푸시) 다음 차이가 생깁니다.
 
 - 노트북과 `sql/`의 기대값 주석(27,055건 등)은 맞지 않게 됩니다. 수업용 사례 O001~O010의 판정은 어느 모드에서나 같습니다.
-- 매일 배치에 넣으면 같은 ID의 고객·주문 내용이 통째로 바뀝니다. 그래서 SCD2 버전, Fact 변경, 소프트 삭제가 대량으로 생깁니다. 실행마다 새 데이터셋을 만드는 방식의 특성입니다.
+- 매일 배치는 기본이 `'random'`입니다. 같은 ID의 고객·주문 내용이 매일 통째로 바뀌므로 SCD2 버전, Fact 변경, 소프트 삭제가 대량으로 생깁니다. 실행마다 새 데이터셋을 만드는 방식의 특성입니다.
 
 `tests/`는 `data/raw`를 읽지 않고 정답표 데이터를 임시 폴더에 새로 만들어 씁니다. 그래서 `data/raw`를 무작위 데이터로 바꿔도 테스트에는 영향이 없습니다.
 

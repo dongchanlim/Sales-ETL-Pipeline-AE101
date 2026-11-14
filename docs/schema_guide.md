@@ -9,7 +9,7 @@
 
 | 스키마 | 한 줄 역할 | 테이블 | 뷰 | 기타 객체 | 갱신 방식 |
 |---|---|---:|---:|---|---|
-| RAW | 원본 CSV를 바꾸지 않고 배치 단위로 쌓는 보관소 | 5 | 5 | 파일 포맷 1 | 실행마다 **추가(append)** |
+| RAW | 원본 CSV를 바꾸지 않고 배치 단위로 쌓는 보관소 | 5 | 5 | 파일 포맷 1, 스테이지 1, 프로시저 1 | 실행마다 **추가(append)** |
 | CORE | 최근 배치를 정제하고 주문별 매출 인정 여부를 판정하는 작업 공간 | 16 | 0 | | 실행마다 **새로 만듦(replace)** |
 | MART | 분석용 스타 스키마와 리포트·대시보드 뷰 | 8 | 13 | 시퀀스 2 | 차원 **SCD2**, Fact **MERGE + 소프트 삭제** |
 | AUDIT | 실행 기록, 데이터 이슈, 품질 검사 결과 | 3 | 0 | | 실행마다 **추가**, 상태는 UPDATE |
@@ -19,6 +19,8 @@
 ```mermaid
 flowchart LR
     GIT[("Git 저장소<br/>data/raw/*.csv")]
+    GEN[["RAW.GENERATE_LANDING_FILES<br/>(생성기, landing_source = random)"]]
+    LAND[("RAW.LANDING 스테이지<br/>current/*.csv")]
 
     subgraph sRAW["RAW · 원본 보관"]
         R1["CUSTOMERS · PRODUCTS · ORDERS<br/>ORDER_ITEMS · PAYMENTS<br/>(모든 배치 누적)"]
@@ -52,7 +54,9 @@ flowchart LR
         O1["T_DAILY_BATCH → AE101_DAILY_BATCH 노트북"]
     end
 
-    GIT --> R1 --> R2 --> C1 --> C2 --> C3 --> C4
+    GIT --> LAND
+    GEN -.덮어쓰기.-> LAND
+    LAND --> R1 --> R2 --> C1 --> C2 --> C3 --> C4
     C1 --> C5
     C3 --> C5
     C2 --> M1
@@ -94,7 +98,9 @@ flowchart LR
 | `ORDER_ITEMS` | 테이블 | 주문 상세 CSV 한 줄 | 주문 상세 원본 | 66,262 | 〃 |
 | `PAYMENTS` | 테이블 | 결제 시도 CSV 한 줄 | 결제 시도 원본 | 31,096 | 〃 |
 | `V_CUSTOMERS_LATEST` · `V_PRODUCTS_LATEST` · `V_ORDERS_LATEST` · `V_ORDER_ITEMS_LATEST` · `V_PAYMENTS_LATEST` | 뷰 | 위와 같음 | 각 테이블에서 `loaded_at` 이 가장 큰 배치만 보여 줌. **CORE 는 항상 이 뷰를 읽습니다** | 테이블과 같음 | STEP 1 |
-| `CSV_FORMAT` | 파일 포맷 | | Git 스테이지의 CSV 를 읽는 규칙 (헤더 1줄 건너뜀, UTF-8) | | STEP 1 |
+| `CSV_FORMAT` | 파일 포맷 | | 스테이지의 CSV 를 읽는 규칙 (헤더 1줄 건너뜀, UTF-8) | | STEP 1 |
+| `LANDING` | 내부 스테이지 | 파일 하나 | `current/` = STEP 3 이 읽을 이번 배치의 CSV 5개와 `answer_key.json`, `batches/<load_id>/` = 배치별 `answer_key.json` 사본 | 파일 6개 + 배치마다 1개 | STEP 1 (STEP 3-0a 에서도 IF NOT EXISTS) |
+| `GENERATE_LANDING_FILES(SOURCE, SEED)` | 프로시저 (Python) | | Git 의 `scripts/generate_data.py` 로 데이터를 만들어 `LANDING/current/` 의 파일을 덮어씀. STEP 3-0b 가 `landing_source` 가 `'random'`·`'answer-key'` 일 때만 호출 | | STEP 1 |
 
 아래 관계는 **업무상 기대하는 관계**입니다. RAW 는 이를 강제하지 않으며, 실제 데이터에는 이를 어기는 행(없는 고객의 주문, 주문 없는 결제 등)이 섞여 있습니다. 그래서 점선으로 그렸습니다.
 

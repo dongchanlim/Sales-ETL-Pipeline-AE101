@@ -1,7 +1,7 @@
 """Snowflake 적재 : 노트북과 같은 sql/ 파일을 같은 순서로 실행합니다.
 
   01_start_run.sql            load_id / run_ts 발급 (CORE.RUN_CTX), PIPELINE_RUNS = RUNNING
-  (Python)                    로컬 CSV → RAW 새 배치   ※ 노트북은 02_load_raw_from_git.sql 로 Git 저장소에서 적재
+  (Python)                    로컬 CSV → RAW 새 배치   ※ 노트북은 02_load_raw_from_git.sql 로 스테이지 @RAW.LANDING 에서 적재
   03 → 04                     CORE 정제·판정
   (Python)                    Snowflake RUN_SUMMARY 와 로컬 계산(src/core.py) 대사. 다르면 FAILED 로 중단
   05 → 06 → 07 → 08 → 09      감사 기록 → SCD2 차원 → Fact MERGE → 품질 검사 → 상태 확정
