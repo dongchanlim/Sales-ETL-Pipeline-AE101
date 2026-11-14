@@ -11,6 +11,17 @@ python scripts/generate_data.py --answer-key   # 정답표 데이터(seed 101)�
 python -m src.pipeline --dry-run               # 지금 data/raw 의 결과 보고서 (outputs/)
 ```
 
+### Snowflake 노트북 셀에서 실행할 때
+
+노트북 셀에는 `__file__`이 없고 `sys.argv`에 커널 인자가 들어 있습니다. 생성기는 이 경우 현재 폴더 기준 `data/raw`에 쓰고 `sys.argv`는 읽지 않습니다. 옵션은 리스트로 넘깁니다.
+
+```python
+exec(open("scripts/generate_data.py").read().replace('if __name__ == "__main__":\n    main()', ""))   # 셀에 코드를 붙여 넣었다면 이 줄은 필요 없음
+main(["--seed", "7", "--out", "/tmp/raw"])      # 옵션 없이 main() 이면 새 무작위 데이터를 현재 폴더의 data/raw 에
+```
+
+노트북이 만든 CSV는 노트북의 로컬 파일 시스템에 생깁니다. STEP 3이 읽는 Git 저장소의 `data/raw`는 바뀌지 않으므로, 이 데이터를 파이프라인에 넣으려면 파일을 따로 올리거나 RAW 테이블에 직접 적재해야 합니다.
+
 ## 0. 생성 모드
 
 | 모드 | seed | 규모 | 심는 문제 | 기대값 확인 |

@@ -1,12 +1,17 @@
 """scripts/generate_data.py : 실행마다 다른 데이터, 같은 seed 재현, 정답표 데이터 고정, 심은 문제의 판정."""
 from collections import Counter, defaultdict
+import contextlib
 from functools import lru_cache
 import hashlib
+import io
 import json
+import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from src.config import ROOT
 from src.pipeline import _by_category, prepare
@@ -143,6 +148,27 @@ class RandomModeTests(unittest.TestCase):
                 category = _by_category(result["state"])
                 for name, share in ref_category.items():
                     self.assertAlmostEqual(category[name] / sum(category.values()), share, delta=0.04, msg=name)
+
+    def test_runs_as_a_notebook_cell(self):
+        """노트북 셀·exec() 에는 __file__ 이 없고 sys.argv 에 커널 인자가 들어 있어도 실행돼야 합니다."""
+        source = (ROOT / "scripts" / "generate_data.py").read_text(encoding="utf-8")
+        before, folder = os.getcwd(), Path(tempfile.mkdtemp())
+        os.chdir(folder)
+        try:
+            with patch.object(sys, "argv", ["ipykernel_launcher.py", "-f", "kernel-1234.json"]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                exec(compile(source, "<notebook cell>", "exec"), {"__name__": "__main__"})
+        finally:
+            os.chdir(before)
+        key = json.loads((folder / "data" / "raw" / "answer_key.json").read_text(encoding="utf-8"))
+        self.assertEqual(key["mode"], "random")
+        self.assertTrue((folder / "data" / "raw" / "orders.csv").exists())
+
+    def test_main_takes_options_as_a_list(self):
+        folder = Path(tempfile.mkdtemp())
+        with contextlib.redirect_stdout(io.StringIO()):
+            GENERATOR.main(["--seed", "5", "--out", str(folder)])
+        self.assertEqual(json.loads((folder / "answer_key.json").read_text(encoding="utf-8"))["seed"], 5)
 
     def test_every_problem_type_is_documented(self):
         doc = (ROOT / "docs" / "data_generation.md").read_text(encoding="utf-8")

@@ -24,7 +24,10 @@ import argparse, calendar, csv, json, math, random
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+try:
+    ROOT = Path(__file__).resolve().parents[1]
+except NameError:                 # 노트북 셀·exec() 로 실행하면 __file__ 이 없음 (Snowflake 노트북 등): 현재 폴더 기준
+    ROOT = Path.cwd()
 ANSWER_KEY_SEED = 101
 REFERENCE_WEIGHTED_PRICE = 26234.9    # 정답표 데이터의 인기도 가중 평균 단가 (weighted_price, seed 101)
 REFERENCE_CATEGORY_SHARE = {          # 정답표 데이터의 카테고리별 기대 매출 비중 (인기도 × 단가, seed 101)
@@ -702,10 +705,14 @@ def summary(result):
     by_kind = {}
     for t in result["types"]:
         by_kind.setdefault(t["kind"], {})[t["name"]] = t["count"]
-    return {k: result[k] for k in ("mode", "seed", "row_counts")} | by_kind
+    return {**{k: result[k] for k in ("mode", "seed", "row_counts")}, **by_kind}
 
 
-def main():
+def main(argv=None):
+    """argv=None 이면 명령줄 인자를 읽습니다. 노트북 셀에서는 sys.argv 에 커널 인자가 들어 있으므로
+    인자를 읽지 않고 기본값으로 실행합니다. 옵션은 main(["--seed", "7", "--out", "/tmp/raw"]) 처럼 넘기세요."""
+    if argv is None and "__file__" not in globals():
+        argv = []
     ap = argparse.ArgumentParser(description="AE101 합성 데이터 생성기 (기본: 실행마다 새 무작위 데이터)")
     ap.add_argument("--out", type=Path, default=ROOT / "data/raw", help="CSV 와 answer_key.json 을 쓸 폴더")
     mode = ap.add_mutually_exclusive_group()
@@ -713,7 +720,7 @@ def main():
     mode.add_argument("--answer-key", action="store_true", help="정답표 데이터(seed 101) 생성. 문서·테스트의 기대값 기준")
     ap.add_argument("--customers", type=int, default=2000, help="고객 수 기준값 (무작위 모드는 ±5%%)")
     ap.add_argument("--orders", type=int, default=30000, help="주문 수 기준값 (무작위 모드는 ±5%%)")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     if a.answer_key and (a.customers, a.orders) != (2000, 30000):
         ap.error("--answer-key 는 규모를 바꿀 수 없습니다 (정답표 숫자가 달라집니다)")
     result = generate(a.out, seed=a.seed, answer_key=a.answer_key, customers=a.customers, orders=a.orders)
