@@ -23,13 +23,13 @@ docs/data_generation.md 3절, 노트북·sql/ 의 기대값 주석, tests/ 는 -
   normal     : 오류처럼 보이지만 규칙이 정상 처리하는 값 (선택값 누락, 앞뒤 공백).
 수업용 사례 40행(O001~O010 등)은 모든 모드에서 각 파일 맨 앞에 그대로 들어갑니다.
 """
-import argparse, calendar, csv, io, json, math, random
+import argparse, calendar, csv, io, json, math, random, sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 try:
     ROOT = Path(__file__).resolve().parents[1]
-except NameError:                 # 노트북 셀·exec() 로 실행하면 __file__ 이 없음 (Snowflake 노트북 등): 현재 폴더 기준
+except (NameError, IndexError):   # 노트북 셀·exec() 로 실행하면 __file__ 이 없음 (Snowflake 노트북 등), 또는 파일이 루트 폴더에 있음: 현재 폴더 기준
     ROOT = Path.cwd()
 ANSWER_KEY_SEED = 101
 REFERENCE_WEIGHTED_PRICE = 26234.9    # 정답표 데이터의 인기도 가중 평균 단가 (weighted_price, seed 101)
@@ -72,7 +72,7 @@ CATEGORIES = {   # 카테고리: (상품 수, 최저가, 최고가, 품목 이�
     "도서":     (10, 9000, 35000, ["SQL 입문", "파이썬 기초", "데이터 모델링", "통계 101", "엑셀 실무"]),
 }
 ADJ = ["베이직", "프리미엄", "라이트", "클래식", "에센셜", "데일리", "미니", "플러스", "오리지널", "스마트"]
-START, END = date(2025, 1, 1), date(2026, 10, 31)
+START, END = date(2025, 1, 1), date.today()
 
 TEACHING_CASES = {   # 수업용 사례 40행: O001~O010 등 판정이 정해진 사례. 각 파일 맨 앞에 그대로 들어갑니다.
     "customers": [
@@ -343,9 +343,15 @@ def make_base(rnd, n_customers, n_orders, match_reference=False):
 
     orders, items, pays = [], [], []
     oid, iid, pyid = 100001, 1000001, 1000001
+    carry = 0.0
     for d in range(days):
         day = START + timedelta(d)
-        n = max(0, int(round(rnd.gauss(n_orders * weights[d] / total_w, 4))))
+        mean = n_orders * weights[d] / total_w
+        if mean >= 4:
+            n = max(0, int(round(rnd.gauss(mean, 4))))
+        else:      # 하루 평균이 편차(4)보다 작은 소규모 실행: 그대로 뽑으면 음수가 잘려 --orders 보다 훨씬 많이 생기므로 누적 반올림
+            carry += mean
+            n = int(carry); carry -= n
         for _ in range(n):
             o = f"O{oid}"; oid += 1
             age = (END - day).days
@@ -421,7 +427,8 @@ def plant_problems(rnd, base, counts, key, realistic):
                            ("region_alias", lambda x: x["region"] in REGION_ALIASES), ("email_malformed", lambda x: x["email"]),
                            ("duplicate_customer_account", None)):
             tc[name] = [x for x in shuffled if cond is None or cond(x)][:c(name)]
-            shuffled = [x for x in shuffled if x not in tc[name]]
+            picked = {x["customer_id"] for x in tc[name]}
+            shuffled = [x for x in shuffled if x["customer_id"] not in picked]
         affected_c = {x["customer_id"] for n in ("customers_key_conflict", "customers_missing_name", "customers_withdrawn")
                       for x in tc[n]}
         rare = sorted(products, key=lambda p: base["popularity"][p["product_id"]])[:30]   # 판매가 적은 상품
@@ -435,9 +442,9 @@ def plant_problems(rnd, base, counts, key, realistic):
     if realistic:
         eligible = [o for o in completed if o["customer_id"] not in affected_c
                     and not any(i["product_id"] in affected_p for i in by_order_items[o["order_id"]])]
-        pool = rnd.sample(eligible, sum(c(n) for n in POOL_TYPES) + 60)
+        pool = rnd.sample(eligible, min(len(eligible), sum(c(n) for n in POOL_TYPES) + 60))   # 소규모면 있는 만큼만
     else:
-        pool = rnd.sample(completed, 700)
+        pool = rnd.sample(completed, min(len(completed), 700))
 
     def take(k, cond=None):
         out, i = [], len(pool) - 1
@@ -472,7 +479,9 @@ def plant_problems(rnd, base, counts, key, realistic):
     for o in sel: by_order_pays[o["order_id"]][-1]["payment_status"] = "refunded"
     key.add("payments_unknown_status", [by_order_pays[o["order_id"]][-1]["payment_id"] for o in sel])
     sel = take(c("orders_unknown_customer"))                         # 없는 고객
-    for k, o in enumerate(sel): o["customer_id"] = f"C9{k:04d}"
+    known_c = {x["customer_id"] for x in customers} | {f"C{10001 + len(customers) + k}" for k in range(c("duplicate_customer_account"))}
+    unknown_c = (cid for cid in (f"C9{k:04d}" for k in range(10**9)) if cid not in known_c)   # 고객이 8만 명 이상이면 C9xxxx 가 실제 고객과 겹침
+    for o in sel: o["customer_id"] = next(unknown_c)
     key.add("orders_unknown_customer", ids(sel))
     sel = take(c("items_unknown_product"))                           # 없는 상품
     for k, o in enumerate(sel): by_order_items[o["order_id"]][-1]["product_id"] = f"P9{k:03d}"
@@ -594,10 +603,11 @@ def plant_problems(rnd, base, counts, key, realistic):
         key.add("padded_values", ids(sel))
 
     # 2-3. 새 행: 주문 ID 누락, 주문 없는 상세/결제
-    for _ in range(c("orders_missing_order_id")):
+    missing = c("orders_missing_order_id") if orders else 0
+    for _ in range(missing):
         o = rnd.choice(orders)
         extra["orders"].append({**o, "order_id": "", "order_amount": str(rnd.randint(1, 50) * 1000)})
-    key.add("orders_missing_order_id", [None] * c("orders_missing_order_id"))
+    key.add("orders_missing_order_id", [None] * missing)
     orphan_items = []
     for k in range(c("orphan_items")):
         p = rnd.choice(prod_ids)
@@ -658,7 +668,8 @@ def plant_problems(rnd, base, counts, key, realistic):
     # 2-5. 완전 중복 행, 그리고 실제 추출 파일처럼 ID 순서로 정렬하되 추가·중복 행은 임의 위치에 끼워 넣음
     base_rows = {"customers": customers, "products": products, "orders": orders, "order_items": items, "payments": pays}
     for t in COLS:
-        dup = [dict(r) for r in rnd.sample(base_rows[t] + extra[t], c(f"{t}_exact_duplicate"))]
+        candidates = base_rows[t] + extra[t]
+        dup = [dict(r) for r in rnd.sample(candidates, min(len(candidates), c(f"{t}_exact_duplicate")))]
         extra[t] += dup
         key.add(f"{t}_exact_duplicate", [r[COLS[t][0]] or None for r in dup])
     flagged_c = set(ids(conflict, "customer_id")) | set(ids(tc.get("customers_missing_name", []), "customer_id"))
@@ -686,10 +697,12 @@ def build_files(seed=None, answer_key=False, customers=2000, orders=30000):
         seed, customers, orders = ANSWER_KEY_SEED, 2000, 30000
     elif seed is None:
         seed = random.SystemRandom().randrange(1, 2**31)
+    if customers < 1 or orders < 1:
+        raise ValueError(f"customers 와 orders 는 1 이상이어야 합니다: customers={customers}, orders={orders}")
     rnd = random.Random(seed)
     if not answer_key:                         # 규모도 실행마다 조금씩 다름
-        customers = round(customers * rnd.uniform(0.95, 1.05))
-        orders = round(orders * rnd.uniform(0.95, 1.05))
+        customers = max(1, round(customers * rnd.uniform(0.95, 1.05)))
+        orders = max(1, round(orders * rnd.uniform(0.95, 1.05)))
     base = make_base(rnd, customers, orders, match_reference=not answer_key)
     counts = ANSWER_KEY_COUNTS if answer_key else random_counts(rnd, customers, orders)
     key = AnswerKey()
@@ -754,7 +767,12 @@ def main(argv=None):
     mode.add_argument("--answer-key", action="store_true", help="정답표 데이터(seed 101) 생성. 문서·테스트의 기대값 기준")
     ap.add_argument("--customers", type=int, default=2000, help="고객 수 기준값 (무작위 모드는 ±5%%)")
     ap.add_argument("--orders", type=int, default=30000, help="주문 수 기준값 (무작위 모드는 ±5%%)")
+    for stream in (sys.stdout, sys.stderr):     # 한글을 못 쓰는 콘솔·리다이렉트(cp1252 등)에서 UnicodeEncodeError 로 죽지 않게
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
     a = ap.parse_args(argv)
+    if a.customers < 1 or a.orders < 1:
+        ap.error("--customers 와 --orders 는 1 이상이어야 합니다")
     if a.answer_key and (a.customers, a.orders) != (2000, 30000):
         ap.error("--answer-key 는 규모를 바꿀 수 없습니다 (정답표 숫자가 달라집니다)")
     result = generate(a.out, seed=a.seed, answer_key=a.answer_key, customers=a.customers, orders=a.orders)
